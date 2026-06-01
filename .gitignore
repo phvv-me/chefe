@@ -1,0 +1,14 @@
+# saci's own generated env + manifests
+.saci/
+
+# python
+__pycache__/
+*.py[cod]
+.venv/
+dist/
+build/
+*.egg-info/
+
+# tooling
+.ruff_cache/
+.pytest_cache/

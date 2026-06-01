@@ -1,0 +1,54 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "saci"
+version = "0.0.1"
+description = "One manifest for every package manager — conda, PyPI, npm, cargo & more, bottled into a single file."
+readme = "README.md"
+requires-python = ">=3.11"
+license = "MIT"
+authors = [{ name = "Pedro Valois", email = "contact@phvv.me" }]
+keywords = ["package-manager", "pixi", "conda", "pypi", "cargo", "npm", "monorepo", "polyglot"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Developers",
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Programming Language :: Python :: 3.14",
+  "Topic :: Software Development :: Build Tools",
+  "Topic :: System :: Software Distribution",
+]
+dependencies = [
+  "cyclopts>=4",
+  "pydantic>=2.7",
+  "tomlkit>=0.13",
+  "packaging>=24",
+  "loguru>=0.7",
+  "plumbum>=1.8",
+  "rich>=13",
+]
+
+[project.optional-dependencies]
+dev = ["ruff>=0.6", "pyrefly>=1", "pytest>=8"]
+
+[project.scripts]
+saci = "saci.cli:app"
+
+[project.urls]
+Homepage = "https://github.com/phvv-me/saci"
+Repository = "https://github.com/phvv-me/saci"
+Issues = "https://github.com/phvv-me/saci/issues"
+
+[tool.hatch.build.targets.wheel]
+packages = ["saci"]
+
+[tool.ruff]
+line-length = 99
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
