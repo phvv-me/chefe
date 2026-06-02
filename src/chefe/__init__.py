@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 # The package name *is* the project name (the build maps pyproject -> this package),
 # so a rename is a single move of the `src/chefe` folder. Everything naming derives
 # from it; reading pyproject.toml at runtime would be fragile (it isn't in the wheel).

@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import platform
 
 from packaging.specifiers import InvalidSpecifier, SpecifierSet

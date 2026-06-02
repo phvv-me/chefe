@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 from .cargo import Cargo
 from .npm import Npm
 from .pixi import Pixi
