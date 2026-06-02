@@ -4,8 +4,8 @@
 
 [![CI](https://github.com/phvv-me/chefe/actions/workflows/ci.yml/badge.svg)](https://github.com/phvv-me/chefe/actions/workflows/ci.yml)
 [![Publish](https://github.com/phvv-me/chefe/actions/workflows/publish.yml/badge.svg)](https://github.com/phvv-me/chefe/actions/workflows/publish.yml)
-[![PyPI](https://img.shields.io/pypi/v/chefe.svg?color=EAB308)](https://pypi.org/project/chefe/)
-[![Python](https://img.shields.io/pypi/pyversions/chefe.svg?color=EAB308)](https://pypi.org/project/chefe/)
+[![PyPI](https://img.shields.io/pypi/v/chefe)](https://pypi.org/project/chefe/)
+[![Python](https://img.shields.io/pypi/pyversions/chefe)](https://pypi.org/project/chefe/)
 [![Docs](https://img.shields.io/badge/docs-phvv.me%2Fchefe-EAB308)](https://phvv.me/chefe)
 
 </div>
@@ -18,7 +18,8 @@
 curl -fsSL https://phvv.me/chefe/install.sh | sh
 ```
 
-This installs [pixi](https://pixi.sh) (the engine chefe compiles to) and chefe itself. Prefer the raw package? Use `pip install chefe` or `uv tool install chefe`.
+This installs [pixi](https://pixi.sh) (the engine chefe compiles to) and chefe itself.
+Prefer the raw package? Use `pip install chefe` or `uv tool install chefe`.
 
 ## What it is
 
