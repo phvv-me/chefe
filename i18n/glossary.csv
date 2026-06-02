@@ -1,0 +1,11 @@
+term,note
+chefe,do not translate (product name)
+pixi,do not translate (tool)
+uv,do not translate (tool)
+npm,do not translate (tool)
+cargo,do not translate (tool)
+conda,do not translate (ecosystem)
+gem,do not translate (ecosystem)
+manifest,keep verbatim in code contexts
+workspace,do not translate (TOML table)
+PyPI,do not translate (registry)
