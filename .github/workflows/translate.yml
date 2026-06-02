@@ -1,0 +1,44 @@
+name: Translate
+
+# Translates the English docs into every locale with Gemini and opens a PR.
+# Runs when an English source page changes (the *.locale.md outputs are
+# excluded so merged translations never retrigger it) or on demand.
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "docs/**/*.md"
+      - "!docs/**/*.*.md"
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  translate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Translate docs with Gemini
+        # Pinned to a commit SHA (GitHub's recommended practice for third-party
+        # actions): immutable and reproducible, and ahead of tag v1.2.2 to include
+        # the 2026 transitive-dependency security fixes. Bump deliberately.
+        uses: 3ru/gpt-translate@d36d569b15411b6e6f727b99c051c443b1b02458 # master 2026-03-20
+        with:
+          apikey: ${{ secrets.GEMINI_API_KEY }}
+          provider: google
+          model: models/gemini-3.5-flash
+          # Each output pattern lines up with the language at the same position;
+          # the * maps every input page into that locale's suffixed file.
+          inputFiles: docs/index.md docs/commands.md docs/manifest.md docs/examples.md
+          outputFiles: docs/*.pt-BR.md docs/*.es.md docs/*.ja.md docs/*.zh.md
+          languages: Brazilian-Portuguese Latin-American-Spanish Japanese Simplified-Chinese
+          prompt: "Translate the following {targetFileExt} document into {targetLanguage}. Output only the translated document with no extra commentary."
+          systemPrompt: >-
+            You translate the chefe documentation. Keep every Markdown structure,
+            fenced code block, inline `code`, link, URL, HTML tag, and YAML or TOML
+            block exactly as written, translating only human-readable prose and
+            headings. Never translate these product or tool names: chefe, pixi, uv,
+            npm, cargo, conda, gem, PyPI, manifest, workspace. Do not add, remove, or
+            reorder lines, and never wrap the whole document in a code fence.

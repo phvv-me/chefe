@@ -7,7 +7,7 @@
 [![PyPI](https://img.shields.io/pypi/v/chefe)](https://pypi.org/project/chefe/)
 [![Python](https://img.shields.io/pypi/pyversions/chefe)](https://pypi.org/project/chefe/)
 [![Docs](https://img.shields.io/badge/docs-phvv.me%2Fchefe-EAB308)](https://phvv.me/chefe)
-[![Localized](https://badges.crowdin.net/chefe/localized.svg)](https://crowdin.com/project/chefe)
+[![i18n](https://img.shields.io/badge/i18n-pt--BR_es_ja_zh-blue)](https://phvv.me/chefe)
 
 </div>
 
