@@ -1,6 +1,6 @@
 # O manifest
 
-Tudo vive em um único `chefe.toml`. O cabeçalho configura o workspace, `[deps]` e as tabelas por ecossistema declaram pacotes, e sobreposições por plataforma e ambientes nomeados se combinam por cima.
+Tudo vive em um único `chefe.toml`. O cabeçalho configura o workspace, `[deps]` e as tabelas por ecossistema declaram pacotes, e as sobreposições por plataforma e os ambientes nomeados se combinam por cima.
 
 ## Workspace
 
@@ -26,7 +26,7 @@ pueue  = ">=4"
 
 ## PyPI
 
-Pacotes PyPI são resolvidos pelo pixi-via-`uv` no **mesmo** ambiente. `[pypi]` guarda as configurações, `[pypi.deps]` os pacotes e `[pypi.indexes]` índices extras nomeados.
+Os pacotes PyPI são resolvidos pelo pixi via `uv` no **mesmo** ambiente. `[pypi]` guarda as configurações, `[pypi.deps]` os pacotes e `[pypi.indexes]` índices extras nomeados.
 
 ```toml
 [pypi]
@@ -53,16 +53,16 @@ prettier = ">=3"
 "@tobilu/qmd" = "*"
 ```
 
-!!! tip "Runtimes são garantidos automaticamente"
-    Cada ecossistema precisa do seu runtime de linguagem para instalar e executar, então o chefe o adiciona a partir do
-    conda-forge quando ausente. `[pypi.deps]` garante `python`, `[npm.deps]` garante `nodejs`,
-    `[cargo.deps]` garante `rust` e `[gem.deps]` garante `ruby`. Declare seu próprio
-    `python` fixado (ou outros) em `[deps]` e o chefe o deixa intacto. Isso vale por ambiente também,
+!!! tip "Os runtimes são garantidos automaticamente"
+    Cada ecossistema precisa do runtime da sua linguagem para instalar e executar, então o chefe
+    o adiciona do conda-forge quando ele falta. `[pypi.deps]` garante o `python`, `[npm.deps]` garante o `nodejs`,
+    `[cargo.deps]` garante o `rust` e `[gem.deps]` garante o `ruby`. Declare seu próprio
+    `python` (ou outros) fixado em `[deps]` e o chefe o deixa em paz. Isso também vale por ambiente,
     então um ambiente `no-default` que usa `[pypi.deps]` ainda recebe seu próprio `python`.
 
 ## Requisitos de sistema
 
-O piso de pacotes virtuais do conda usado na resolução multiplataforma, e não um carregamento de módulo.
+O piso de pacotes virtuais do conda usado para a resolução multiplataforma, não um carregamento de módulo.
 
 ```toml
 [system]
@@ -79,9 +79,18 @@ LOG_LEVEL = "info"
 CUDA_MODULE_LOADING = "LAZY"
 ```
 
+## Scripts de ativação
+
+Scripts de shell carregados quando o ambiente é ativado, para configurações que variáveis de ambiente estáticas não conseguem expressar (caminhos computados, symlinks de bibliotecas). Eles compilam para os `[activation] scripts` do pixi; um caminho relativo à raiz do repositório continua funcionando a partir do `.chefe/` gerado.
+
+```toml
+[activation]
+scripts = ["scripts/activate.sh"]
+```
+
 ## Sobreposições por plataforma
 
-Adicione deps condicionalmente por plataforma, e elas compilam para targets nativos do pixi. Qualquer escopo se aninha sob `[on.…]`.
+Adicione dependências condicionalmente por plataforma, e elas compilam para os targets nativos do pixi. Qualquer escopo aninha sob `[on.…]`.
 
 ```toml
 [on.linux.deps]
@@ -93,11 +102,12 @@ some-arm-wheel = "*"
 
 ## Ambientes nomeados
 
-Componha ambientes extras, como features do pixi. `no-default = true` exclui as deps base.
+Combine ambientes extras, como features do pixi. `no-default = true` exclui as dependências base, e `platforms` restringe o ambiente a onde ele pode ser construído (assim um ambiente de GPU é pulado ao resolver em um laptop).
 
 ```toml
 [envs.serving]
 no-default = true
+platforms  = ["linux-64", "linux-aarch64"]
 
 [envs.serving.pypi.deps]
 vllm = ">=0.6"
@@ -107,7 +117,7 @@ Instale ou inspecione um com `chefe install serving` ou `chefe tree serving`.
 
 ## Tasks
 
-Comandos nomeados que executam dentro do ambiente, acessados com `chefe run <task>`.
+Comandos nomeados que rodam dentro do ambiente, alcançados com `chefe run <task>`. Eles executam *código*, nunca instalam dependências. Todo pacote pertence ao `[<eco>.deps]` do seu ecossistema, para que o `chefe install` e o `chefe global` cuidem dele. Uma task que recorre a `npm install -g` ou `cargo install` é o anti-padrão que o chefe substitui.
 
 ```toml
 [tasks]

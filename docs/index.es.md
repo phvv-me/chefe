@@ -1,22 +1,12 @@
 # chefe
 
-Un manifest para cada gestor de paquetes
+Un manifest para todos los gestores de paquetes.
 
-## Instalación
-
-```sh
-curl -fsSL https://phvv.me/chefe/install.sh | sh
-```
-
-Esto instala [pixi](https://pixi.sh) (el motor al que chefe compila) y chefe en sí. ¿Prefieres el paquete sin más? Usa `pip install chefe` o `uv tool install chefe`.
-
-## Qué es
-
-Conda, PyPI, npm, cargo. Los proyectos reales necesitan varios a la vez, dispersos entre `pixi.toml`, `package.json` y `Cargo.toml`. chefe es el chef ejecutivo. Escribes **un solo `chefe.toml`** como receta, compila cada manifest nativo dentro de `.chefe/`, ejecuta las herramientas reales y las emplata como un único entorno. Nunca reimplementa un solver. Dirige a los cocineros.
+Conda, PyPI, npm, cargo. Los proyectos reales necesitan varios a la vez, dispersos entre `pixi.toml`, `package.json` y `Cargo.toml`. **chefe** es el chef de cocina: escribes **una receta `chefe.toml`**, compila cada manifest nativo dentro de `.chefe/`, ejecuta las herramientas reales y las sirve como un solo entorno. Nunca reimplementa un solver. Dirige a los cocineros.
 
 <div class="grid cards" markdown>
 
-- :material-silverware-variant: **Una sola receta**
+- :material-silverware-variant: **Una receta**
 
     Cada ecosistema en un solo `chefe.toml`. Se acabó hacer malabares con cuatro manifests.
 
@@ -26,7 +16,7 @@ Conda, PyPI, npm, cargo. Los proyectos reales necesitan varios a la vez, dispers
 
 - :material-source-branch: **Componible**
 
-    Las superposiciones por plataforma y los entornos con nombre se apilan como los features de pixi.
+    Las superposiciones por plataforma y los entornos con nombre se apilan como las features de pixi.
 
 - :material-broom: **Autocontenido**
 
@@ -34,69 +24,43 @@ Conda, PyPI, npm, cargo. Los proyectos reales necesitan varios a la vez, dispers
 
 </div>
 
-!!! warning "chefe está en una etapa temprana (`0.0.x`)"
-    El formato del manifest y los comandos aún pueden cambiar.
-
-## Inicio rápido
+## Instalación
 
 ```sh
-chefe init                 # scaffold a chefe.toml
-chefe add ripgrep          # add deps, use --pypi / --cargo / --npm for others
-chefe install              # provision every ecosystem at once
-chefe tree                 # what's declared vs installed, per ecosystem
+curl -fsSL https://phvv.me/chefe/install.sh | sh
 ```
 
-## Cómo encaja todo
+Solo necesita [pixi](https://pixi.sh), el motor al que chefe compila, que además provee el Python con el que instala chefe. ¿Prefieres el paquete directo? `pip install chefe`.
 
-```mermaid
-flowchart TB
-    subgraph recipe["una receta (chefe.toml)"]
-        direction LR
-        D["[deps]<br/>conda"]
-        PY["[pypi.deps]"]
-        NP["[npm.deps]"]
-        CG["[cargo.deps]"]
-    end
+```toml title="chefe.toml"
+[workspace]
+name = "my-project"
 
-    subgraph compiled["chefe sync genera .chefe/"]
-        direction LR
-        PT["pixi.toml"]
-        PJ["package.json"]
-    end
+[deps]                 # conda, the default source
+python  = ">=3.12"
+ripgrep = "*"
 
-    subgraph solve["chefe install ejecuta las herramientas reales"]
-        direction LR
-        PIXI["pixi<br/>conda-forge"]
-        UV["uv<br/>dentro de pixi"]
-        NPM["npm"]
-        CARGO["cargo<br/>vía pixi run cargo"]
-    end
+[pypi.deps]
+torch = ">=2.6"
 
-    ENV(["un entorno activado<br/>prefijo .chefe/ en PATH"]):::brand
-
-    D --> PT
-    PY --> PT
-    NP --> PJ
-    CG -. sin archivo, instala en el lugar .-> CARGO
-
-    PT --> PIXI
-    PIXI --> UV
-    PJ --> NPM
-
-    PIXI --> ENV
-    UV --> ENV
-    NPM --> ENV
-    CARGO --> ENV
-
-    classDef brand fill:#eab308,stroke:#1a1a1a,stroke-width:2px,color:#1a1a1a;
+[npm.deps]
+prettier = ">=3"
 ```
 
-- La **estructura** la valida el esquema de chefe, mientras que las **especificaciones de paquetes** siguen siendo tarea de cada herramienta.
-- Editar `chefe.toml` mediante `chefe add` y `chefe remove` conserva tus comentarios y formato.
-- `pixi` (con `uv` dentro) es el motor profundo para conda y PyPI, y los demás ecosistemas son capas finas y explícitas por encima.
+!!! warning "chefe está en etapa temprana (`0.0.x`)"
+    El formato del manifest y los comandos todavía pueden cambiar.
 
-A continuación, la [referencia del manifest](manifest.md) y la [referencia de comandos](commands.md).
+## Siguiente
 
-## Trasfondo
+<div class="grid cards" markdown>
 
-Un chef ejecutivo nunca cocina cada plato solo. Escribe la receta y dirige la cocina, y cada cocinero trabaja en su estación. Los gestores de paquetes dispersos son esa cocina, así que chefe los dirige desde una sola receta. 🧑‍🍳
+- [:material-cogs: **Cómo funciona**](how-it-works.md) — el pipeline de compilar y ejecutar.
+- [:material-console: **Comandos**](commands.md) — el CLI completo.
+- [:material-file-document-outline: **Manifest**](manifest.md) — cada tabla de `chefe.toml`.
+- [:material-test-tube: **Ejemplos**](examples.md) — una receta de monorepo del mundo real.
+
+</div>
+
+## Historia
+
+Un chef de cocina nunca prepara cada plato solo. Escribe la receta y dirige la línea, y cada cocinero trabaja su estación. Los gestores de paquetes dispersos son esa línea, así que chefe los dirige desde una sola receta. 🧑‍🍳

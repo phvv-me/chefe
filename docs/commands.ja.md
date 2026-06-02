@@ -1,21 +1,22 @@
 # コマンド
 
-chefe は pixi のコマンド体系を、統合されたマニフェストの上にそのまま再現します。ほとんどのコマンドは省略可能な `env` を受け取り、デフォルトは `default` です。
+chefe は統一マニフェストに対して pixi の動詞を反映します。ほとんどのコマンドはオプションの `env` を取り、デフォルトは `default` です。
 
-| command | what it does |
+| コマンド | 動作 |
 |---|---|
-| `chefe init` | scaffold a starter `chefe.toml` in the current directory |
-| `chefe sync` | compile `chefe.toml` into `.chefe/{pixi.toml, package.json, …}` |
-| `chefe install [env]` | sync, then provision every ecosystem for `env` |
-| `chefe update [env]` | re-solve to the newest allowed versions across ecosystems |
-| `chefe add <pkg…>` | add packages to the manifest, then re-sync |
-| `chefe remove <pkg…>` | remove packages wherever they're declared, then re-sync |
-| `chefe tree [env]` | declared vs installed, each dep checked in **its own** ecosystem |
-| `chefe run <task> [args…]` | run a task inside the environment |
-| `chefe x <cmd…>` | run a command in a throwaway env, like uvx or pipx run |
-| `chefe shell [env]` | open an activated shell in `env` |
-| `chefe global install [name]` | install the conda deps into the shared global pixi env |
-| `chefe clean` | remove the generated `.chefe/` env and manifests |
+| `chefe init` | カレントディレクトリに出発点となる `chefe.toml` を生成する |
+| `chefe sync` | `chefe.toml` を `.chefe/{pixi.toml, package.json, …}` へコンパイルする |
+| `chefe install [env]` | sync してから、`env` のすべてのエコシステムをプロビジョニングする |
+| `chefe update [env]` | エコシステム全体で許可された最新バージョンへ再解決する |
+| `chefe upgrade [pkg…]` | マニフェストの conda + pypi の制約を最新に引き上げてから sync する |
+| `chefe add <pkg…>` | マニフェストにパッケージを追加してから再 sync する |
+| `chefe remove <pkg…>` | 宣言されている場所からパッケージを削除してから再 sync する |
+| `chefe tree [env]` | 宣言済みとインストール済みを、各 dep を **それ自身の** エコシステムで照合する |
+| `chefe run <task> [args…]` | 環境内でタスクを実行する |
+| `chefe x <cmd…>` | uvx や pipx run のように、使い捨ての環境でコマンドを実行する |
+| `chefe shell [env]` | `env` でアクティブ化されたシェルを開く |
+| `chefe global install [name]` | すべてのエコシステムの deps を共有のグローバル環境へインストールする |
+| `chefe clean` | 生成された `.chefe/` 環境とマニフェストを削除する |
 
 ## init
 
@@ -24,11 +25,11 @@ chefe init                 # name taken from the current directory
 chefe init --name myproj
 ```
 
-現在のプラットフォーム、`conda-forge`、`python >=3.11` を含む最小限の `chefe.toml` を書き出します。既存のマニフェストがある場合は上書きを拒否します。
+現在のプラットフォーム、`conda-forge`、`python >=3.11` を備えた最小限の `chefe.toml` を書き込みます。既存のマニフェストを上書きすることは拒否します。
 
 ## add
 
-conda がデフォルトのソースで、フラグを付けると別のエコシステムを選べます。`--spec` はバージョンを指定し（デフォルトは `*`）、`--env` は名前付き環境を対象にします。
+Conda がデフォルトのソースであり、フラグで別のエコシステムを選びます。`--spec` はバージョンを設定し（デフォルトは `*`）、`--env` は名前付き環境を対象にします。
 
 ```sh
 chefe add ripgrep numpy
@@ -37,7 +38,7 @@ chefe add prettier --npm
 chefe add vllm --pypi --env serving
 ```
 
-編集してもコメントやフォーマットはそのまま保たれます。
+編集してもコメントと書式は保たれます。
 
 ## tree
 
@@ -46,7 +47,7 @@ chefe tree
 chefe tree serving
 ```
 
-宣言された各パッケージは、それが宣言されたエコシステムに照らして検査されます。conda は pixi 環境に対して、npm は `.chefe/node_modules` に対して、cargo は環境の `.crates.toml` に対して照合されます。chefe はそれぞれを `✓`（正常）、`≠`（ずれ）、`✗`（欠落）として報告し、推移的依存の数も併せて示します。
+宣言された各パッケージは、それが宣言されたエコシステムに対して照合されます。Conda は pixi 環境に対して、npm は `.chefe/node_modules` に対して、cargo は環境の `.crates.toml` に対して照合されます。chefe はそれぞれを `✓` ok、`≠` ドリフト、`✗` 欠落として、推移的な数とともに報告します。
 
 ## run と shell
 
@@ -63,13 +64,15 @@ chefe x ruff check .                   # run a tool in a throwaway env, no manif
 chefe x --with build python -m build   # add extra packages with --with
 ```
 
-`uvx` や `pipx run` と同様に、`chefe x` はそのツールのために一時的な環境を用意して実行し、`chefe.toml` を後に残しません。
+`uvx` や `pipx run` のように、`chefe x` はツールのために一時的な環境をプロビジョニングして実行し、`chefe.toml` を残しません。
 
 ## global install
 
+すべてのエコシステムを一つの共有グローバル環境へプロビジョニングします。これはどこでも使いたいツールのための `chefe install` の対応物です。conda は `pixi global` を経由し、これは python/node/rust ランタイムも取り込みます。次にグローバル環境自身の pip/npm/cargo が pypi/npm/cargo の deps を追加します。uv は関与しません。
+
 ```sh
-chefe global install          # exposes the conda [deps] as a shared global env
-chefe global install mytools
+chefe global install          # every ecosystem's deps into a shared global env
+chefe global install mytools  # name the env explicitly
 ```
 
 ## clean

@@ -1,28 +1,18 @@
 # chefe
 
-Um manifest para cada gerenciador de pacotes
+Um manifest para cada gerenciador de pacotes.
 
-## Instalação
-
-```sh
-curl -fsSL https://phvv.me/chefe/install.sh | sh
-```
-
-Isso instala o [pixi](https://pixi.sh) (o motor para o qual o chefe compila) e o próprio chefe. Prefere o pacote puro? Use `pip install chefe` ou `uv tool install chefe`.
-
-## O que é
-
-Conda, PyPI, npm, cargo. Projetos reais precisam de vários ao mesmo tempo, espalhados entre `pixi.toml`, `package.json` e `Cargo.toml`. O chefe é o chefe de cozinha. Você escreve **uma única receita `chefe.toml`**, ele compila cada manifest nativo em `.chefe/`, executa as ferramentas de verdade e serve tudo como um único ambiente. Ele nunca reimplementa um solver. Ele comanda os cozinheiros.
+Conda, PyPI, npm, cargo. Projetos reais precisam de vários ao mesmo tempo, espalhados por `pixi.toml`, `package.json` e `Cargo.toml`. O **chefe** é o chef de cozinha: você escreve **uma única receita `chefe.toml`**, ele compila cada manifest nativo dentro de `.chefe/`, executa as ferramentas reais e serve tudo como um único ambiente. Ele nunca reimplementa um solver. Ele comanda os cozinheiros.
 
 <div class="grid cards" markdown>
 
 - :material-silverware-variant: **Uma receita**
 
-    Todo ecossistema em um único `chefe.toml`. Chega de fazer malabarismo com quatro manifests.
+    Cada ecossistema em um único `chefe.toml`. Chega de fazer malabarismo com quatro manifests.
 
 - :material-cog-transfer-outline: **Saída nativa**
 
-    Compila para `pixi.toml`, `package.json` e companhia de verdade. As ferramentas reais fazem a resolução.
+    Compila para `pixi.toml`, `package.json` e companhia, de verdade. As ferramentas de fato é que resolvem.
 
 - :material-source-branch: **Combinável**
 
@@ -30,73 +20,47 @@ Conda, PyPI, npm, cargo. Projetos reais precisam de vários ao mesmo tempo, espa
 
 - :material-broom: **Autocontido**
 
-    Todo o ambiente vive em `.chefe/`, então basta um único comando para apagá-lo.
+    Todo o ambiente vive em `.chefe/`, então um único comando apaga tudo.
 
 </div>
 
-!!! warning "chefe é recente (`0.0.x`)"
-    O formato do manifest e os comandos ainda podem mudar.
-
-## Início rápido
+## Instalação
 
 ```sh
-chefe init                 # scaffold a chefe.toml
-chefe add ripgrep          # add deps, use --pypi / --cargo / --npm for others
-chefe install              # provision every ecosystem at once
-chefe tree                 # what's declared vs installed, per ecosystem
+curl -fsSL https://phvv.me/chefe/install.sh | sh
 ```
 
-## Como tudo se encaixa
+Ele precisa apenas do [pixi](https://pixi.sh), o motor para o qual o chefe compila, que também fornece o Python com o qual o chefe é instalado. Prefere o pacote puro? `pip install chefe`.
 
-```mermaid
-flowchart TB
-    subgraph recipe["uma receita (chefe.toml)"]
-        direction LR
-        D["[deps]<br/>conda"]
-        PY["[pypi.deps]"]
-        NP["[npm.deps]"]
-        CG["[cargo.deps]"]
-    end
+```toml title="chefe.toml"
+[workspace]
+name = "my-project"
 
-    subgraph compiled["chefe sync gera .chefe/"]
-        direction LR
-        PT["pixi.toml"]
-        PJ["package.json"]
-    end
+[deps]                 # conda, the default source
+python  = ">=3.12"
+ripgrep = "*"
 
-    subgraph solve["chefe install executa as ferramentas de verdade"]
-        direction LR
-        PIXI["pixi<br/>conda-forge"]
-        UV["uv<br/>dentro do pixi"]
-        NPM["npm"]
-        CARGO["cargo<br/>via pixi run cargo"]
-    end
+[pypi.deps]
+torch = ">=2.6"
 
-    ENV(["um ambiente ativado<br/>prefixo .chefe/ no PATH"]):::brand
-
-    D --> PT
-    PY --> PT
-    NP --> PJ
-    CG -. sem arquivo, instala no local .-> CARGO
-
-    PT --> PIXI
-    PIXI --> UV
-    PJ --> NPM
-
-    PIXI --> ENV
-    UV --> ENV
-    NPM --> ENV
-    CARGO --> ENV
-
-    classDef brand fill:#eab308,stroke:#1a1a1a,stroke-width:2px,color:#1a1a1a;
+[npm.deps]
+prettier = ">=3"
 ```
 
-- A **estrutura** é validada pelo schema do chefe, enquanto as **especificações dos pacotes** continuam sendo tarefa de cada ferramenta.
-- Editar o `chefe.toml` por meio de `chefe add` e `chefe remove` preserva seus comentários e formatação.
-- O `pixi` (com o `uv` dentro dele) é o motor central para conda e PyPI, e os demais ecossistemas são camadas finas e explícitas por cima.
+!!! warning "chefe ainda é inicial (`0.0.x`)"
+    O formato do manifest e os comandos ainda podem mudar.
 
-A seguir, a [referência do manifest](manifest.md) e a [referência de comandos](commands.md).
+## A seguir
+
+<div class="grid cards" markdown>
+
+- [:material-cogs: **Como funciona**](how-it-works.md) — o pipeline de compilar e executar.
+- [:material-console: **Comandos**](commands.md) — a CLI completa.
+- [:material-file-document-outline: **Manifest**](manifest.md) — cada tabela do `chefe.toml`.
+- [:material-test-tube: **Exemplos**](examples.md) — uma receita de monorepo do mundo real.
+
+</div>
 
 ## Lore
 
-Um chefe de cozinha nunca prepara cada prato sozinho. Ele escreve a receita e comanda a linha, e cada cozinheiro trabalha em sua estação. Gerenciadores de pacotes espalhados são essa linha, então o chefe os dirige a partir de uma única receita. 🧑‍🍳
+Um chef de cozinha nunca prepara cada prato sozinho. Ele escreve a receita e comanda a linha, e cada cozinheiro trabalha na sua estação. Os gerenciadores de pacotes espalhados são essa linha, então o chefe os dirige a partir de uma única receita. 🧑‍🍳
