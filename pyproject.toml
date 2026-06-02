@@ -3,18 +3,27 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "saci"
+name = "chefe"
 version = "0.0.1"
-description = "One manifest for every package manager — conda, PyPI, npm, cargo & more, bottled into a single file."
+description = "One manifest for every package manager | conda, PyPI, npm, cargo & more, behind a single file."
 readme = "README.md"
 requires-python = ">=3.11"
-license = "MIT"
+license = "Apache-2.0"
 authors = [{ name = "Pedro Valois", email = "contact@phvv.me" }]
-keywords = ["package-manager", "pixi", "conda", "pypi", "cargo", "npm", "monorepo", "polyglot"]
+keywords = [
+  "package-manager",
+  "pixi",
+  "conda",
+  "pypi",
+  "cargo",
+  "npm",
+  "monorepo",
+  "polyglot",
+]
 classifiers = [
   "Development Status :: 3 - Alpha",
   "Intended Audience :: Developers",
-  "License :: OSI Approved :: MIT License",
+  "License :: OSI Approved :: Apache Software License",
   "Programming Language :: Python :: 3.11",
   "Programming Language :: Python :: 3.12",
   "Programming Language :: Python :: 3.13",
@@ -27,24 +36,35 @@ dependencies = [
   "pydantic>=2.7",
   "tomlkit>=0.13",
   "packaging>=24",
-  "loguru>=0.7",
   "plumbum>=1.8",
   "rich>=13",
+  "typing-extensions>=4.6",
 ]
 
 [project.optional-dependencies]
-dev = ["ruff>=0.6", "pyrefly>=1", "pytest>=8"]
+dev = [
+  "ruff>=0.6",
+  "pyrefly>=1",
+  "mypy>=1.11",
+  "pytest>=8",
+  "hypothesis>=6.100",
+  "pytest-cov>=5",
+  "syrupy>=4",
+  "pytest-subprocess>=1.5",
+  "dirty-equals>=0.8",
+]
+docs = ["mkdocs-material>=9.5", "mkdocs-llmstxt>=0.2"]
 
 [project.scripts]
-saci = "saci.cli:app"
+chefe = "chefe.cli:app"
 
 [project.urls]
-Homepage = "https://github.com/phvv-me/saci"
-Repository = "https://github.com/phvv-me/saci"
-Issues = "https://github.com/phvv-me/saci/issues"
+Homepage = "https://github.com/phvv-me/chefe"
+Repository = "https://github.com/phvv-me/chefe"
+Issues = "https://github.com/phvv-me/chefe/issues"
 
 [tool.hatch.build.targets.wheel]
-packages = ["saci"]
+packages = ["src/chefe"]
 
 [tool.ruff]
 line-length = 99
@@ -52,3 +72,32 @@ target-version = "py311"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM"]
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+plugins = ["pydantic.mypy"]
+files = ["src"]
+mypy_path = "src"
+namespace_packages = false
+
+[[tool.mypy.overrides]]
+module = ["plumbum.*"]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+addopts = "-q -ra --strict-markers"
+testpaths = ["tests"]
+
+[tool.coverage.run]
+source = ["chefe"]
+branch = true
+
+[tool.coverage.report]
+show_missing = true
+exclude_lines = [
+  "pragma: no cover",
+  "raise NotImplementedError",
+  "if TYPE_CHECKING:",
+  "if __name__ == .__main__.:",
+]

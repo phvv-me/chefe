@@ -1,7 +1,7 @@
 name: Publish
 
-# Publishes to PyPI on a version tag via Trusted Publishing (OIDC — no token to store).
-# Set up once at https://pypi.org/manage/project/saci/settings/publishing/
+# Publishes to PyPI on a version tag via Trusted Publishing (OIDC, no token to store).
+# Configure the trusted publisher once at https://pypi.org/manage/account/publishing/
 on:
   push:
     tags: ["v*"]

@@ -1,85 +1,65 @@
 <div align="center">
 
-<img src="assets/logo.svg" width="110" alt="saci logo — a whirlwind bottled in a jar" />
+<img src="docs/assets/logo.svg" width="120" alt="chefe logo, a domed serving cloche" />
 
-# saci
+# chefe
 
-**One manifest for every package manager.**
-Conda, PyPI, npm, cargo & more — bottled into a single file.
+**One manifest for every package manager.** 🧑‍🍳
 
-[![CI](https://github.com/phvv-me/saci/actions/workflows/ci.yml/badge.svg)](https://github.com/phvv-me/saci/actions/workflows/ci.yml)
-[![PyPI](https://img.shields.io/pypi/v/saci.svg)](https://pypi.org/project/saci/)
-[![Python](https://img.shields.io/pypi/pyversions/saci.svg)](https://pypi.org/project/saci/)
-[![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![CodeRabbit](https://img.shields.io/coderabbit/prs/github/phvv-me/saci?labelColor=171717&color=FF570A&label=CodeRabbit+Reviews)](https://coderabbit.ai)
+[![CI](https://github.com/phvv-me/chefe/actions/workflows/ci.yml/badge.svg)](https://github.com/phvv-me/chefe/actions/workflows/ci.yml)
+[![PyPI](https://img.shields.io/pypi/v/chefe.svg?color=EAB308)](https://pypi.org/project/chefe/)
+[![Docs](https://img.shields.io/badge/docs-phvv.me%2Fchefe-EAB308)](https://phvv.me/chefe)
+[![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 
 </div>
 
----
+> [!WARNING]
+> **chefe is early (`0.0.x`).** The manifest and commands may still change.
 
-Every language ships its own manager — `pixi`, `uv`, `npm`, `cargo`, `bundler`, `go`. Real projects need several at once, scattered across `pixi.toml`, `package.json`, `Cargo.toml`… **saci bottles them into one `saci.toml`**, compiles each native manifest, runs the real tools, and activates everything as one environment. It never re-implements a solver — it delegates, and unifies.
-
-## Quickstart
-
-```sh
-pip install saci          # or: pixi global install saci
-saci sync                 # compile saci.toml → native manifests
-saci install              # provision every ecosystem at once
-saci tree                 # what's declared vs what's installed, per ecosystem
-```
-
-## The manifest
+Conda, PyPI, npm, cargo. Real projects need several at once, scattered across `pixi.toml`, `package.json`, and `Cargo.toml`. chefe is the head chef. You write **one `chefe.toml`** recipe, chefe runs the line (pixi, npm, cargo) and plates a single environment. It never re-implements a solver. It runs the cooks.
 
 ```toml
-[saci]
-name      = "my-project"
-channels  = ["conda-forge"]
+[workspace]
+name     = "my-project"
+channels = ["conda-forge"]
 
-[deps]                      # bare table = conda (the default source)
-python = ">=3.11"
+[deps]                      # bare table is conda, the default source
+python  = ">=3.11"
 ripgrep = "*"
 
 [pypi.deps]                 # resolved by pixi-via-uv, in the same env
-torch = { version = ">=2.6", index = "pytorch" }
+torch = ">=2.6"
 
-[pypi.indexes]
-pytorch = "https://download.pytorch.org/whl/cu124"
-
-[cargo.deps]                # other ecosystems are explicit: [<eco>.deps]
+[cargo.deps]                # other ecosystems are explicit via [<eco>.deps]
 bookokrat = "*"
 
 [npm.deps]
 prettier = ">=3"
-
-[on.linux.deps]             # platform overlays → native targets
-cupy = ">=13"
-
-[envs.serving]              # named environments compose, like pixi features
-no-default = true
-[envs.serving.pypi.deps]
-vllm = ">=0.6"
 ```
 
-## Commands
+## Installation
 
-| command | what it does |
-|---|---|
-| `saci sync` | compile `saci.toml` → `.saci/{pixi.toml, package.json, …}` |
-| `saci install [env]` | provision every ecosystem for `env` |
-| `saci add <pkg> [--pypi/--cargo/--npm]` | add to the manifest (keeps your comments) |
-| `saci remove <pkg>` | drop it wherever it's declared |
-| `saci tree [env]` | declared-vs-installed, each dep checked in **its own** ecosystem |
-| `saci run <task>` · `saci shell` | run a task / open a shell inside the env |
-| `saci global install` | put the deps in the shared global env |
+```sh
+curl -fsSL https://phvv.me/chefe/install.sh | sh
+```
 
-## How it works
+This installs [pixi](https://pixi.sh) (the engine chefe compiles to) and chefe itself. Prefer the raw package? Use `pip install chefe` or `uv tool install chefe`.
 
-`saci.toml` → **structure** validated by `pydantic` → compiled into each tool's native manifest under `.saci/` → installed by the real tools (specs validated by them) → activated as one. Editing keeps your comments via `tomlkit`; the environment lives in `.saci/`, so saci is self-contained.
+## Basic usage
 
-## The name
+```sh
+chefe init                 # scaffold a chefe.toml
+chefe add ripgrep          # add deps, use --pypi / --cargo / --npm for others
+chefe install              # provision every ecosystem at once
+chefe tree                 # what's declared vs installed, per ecosystem
+```
 
-In Brazilian folklore the **Saci** is a whirlwind of mischief you tame by **trapping it in a glass jar**. Scattered package managers are that mischief — saci bottles them into one. 🌀
+> [!TIP]
+> Run `chefe tree` anytime to see declared vs installed across every ecosystem at a glance. ✅
 
-## License
+> [!NOTE]
+> Full documentation lives at **[phvv.me/chefe](https://phvv.me/chefe)**.
 
-MIT
+## Lore
+
+A head chef never cooks every dish alone. They write the recipe and run the line, and the cooks each work their station. chefe does the same for your dependencies. One recipe in, one plated environment out, with pixi, npm, and cargo working the stations. 🧑‍🍳

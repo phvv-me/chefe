@@ -1,0 +1,190 @@
+from __future__ import annotations
+
+import shutil
+from collections import Counter
+from pathlib import Path
+
+import tomlkit
+from rich.console import Console
+from rich.markup import escape
+from rich.table import Table
+
+from . import ECOSYSTEMS, ENV_DIR, MANIFEST, NAME, PIXI_RESOLVED
+from .backends import Cargo, Npm, Pixi
+from .compiled import PackageJson, PixiManifest
+from .manifest import Document, Manifest
+from .state import Declared
+from .utils import current_platform, satisfied
+
+
+class PackageManager:
+    """A workspace: one manifest, compiled into a generated env and run by the real tools."""
+
+    def __init__(self, root: Path = Path()) -> None:
+        self.manifest = root / MANIFEST
+        self.out = root / ENV_DIR
+        self.pixi = Pixi(self.out)
+        self.npm = Npm(self.out)
+        self.cargo = Cargo(self.out, self.pixi)
+        self.console = Console()
+
+    def load(self) -> Manifest:
+        """The validated manifest."""
+        return Manifest.load(self.manifest)
+
+    def declared(self, env: str) -> dict[str, Declared]:
+        """Every dep declared for ``env`` on this host."""
+        return self.load().declared(env, current_platform())
+
+    def init(self, name: str = "") -> None:
+        """Scaffold a starter manifest."""
+        if self.manifest.exists():
+            self.console.print(f"[yellow]{self.manifest.name} already exists[/yellow], untouched")
+            return
+        name = name or Path.cwd().name
+        self.manifest.write_text(
+            f'[workspace]\nname = "{name}"\nversion = "0.1.0"\n'
+            f'platforms = ["{current_platform()}"]\n'
+            'channels = ["conda-forge"]\n\n[deps]\npython = ">=3.11"\n'
+        )
+        self.console.print(
+            f"[green]created[/green] {self.manifest.name} for [bold]{escape(name)}[/bold]"
+        )
+
+    def sync(self) -> None:
+        """Compile the manifest into the generated `{pixi.toml, package.json}`."""
+        manifest = self.load()
+        self.out.mkdir(exist_ok=True)
+        self.pixi.manifest.write_text(PixiManifest.from_manifest(manifest).to_toml())
+        if (package := PackageJson.from_manifest(manifest)) is not None:
+            self.npm.manifest.write_text(package.to_json())
+        self.console.print(f"[green]synced[/green] {self.manifest.name} → {self.out.name}/")
+
+    def install(self, env: str = "default") -> None:
+        """Sync, then make ``env`` match the manifest across every ecosystem."""
+        self.sync()
+        self.pixi("install", "-e", env)
+        self.npm("install")
+        crates = {n: d.spec for n, d in self.declared(env).items() if d.source == "cargo"}
+        self.cargo.sync(env, crates)
+        self.console.print(f"[green]installed[/green] env [bold]{escape(env)}[/bold]")
+
+    def update(self, env: str = "default") -> None:
+        """Re-solve to the newest allowed versions across ecosystems."""
+        self.sync()
+        self.pixi("update", "-e", env)
+        self.npm("update")
+        self.console.print(f"[green]updated[/green] env [bold]{escape(env)}[/bold]")
+
+    def clean(self) -> None:
+        """Remove the generated env and manifests."""
+        shutil.rmtree(self.out, ignore_errors=True)
+        self.console.print(f"[green]removed[/green] {self.out.name}/")
+
+    def global_install(self, name: str = "") -> None:
+        """Install the conda `[deps]` into a shared global pixi env."""
+        manifest = self.load()
+        name = name or manifest.workspace.name
+        specs = [
+            pkg if dep.version in (None, "*") else f"{pkg}{dep.version}"
+            for pkg, dep in manifest.deps.items()
+        ]
+        self.pixi.global_install(name, specs)
+        self.console.print(
+            f"[green]installed[/green] {len(specs)} deps into [bold]{escape(name)}[/bold]"
+        )
+
+    def run(self, task: str, *args: str) -> None:
+        """Run a task inside the env."""
+        self.pixi("run", task, *args)
+
+    def shell(self, env: str = "default") -> None:
+        """Open an activated shell in ``env``."""
+        self.pixi("shell", "-e", env)
+
+    def add(
+        self,
+        *packages: str,
+        pypi: bool = False,
+        cargo: bool = False,
+        npm: bool = False,
+        gem: bool = False,
+        env: str = "",
+        spec: str = "*",
+    ) -> None:
+        """Add packages to the manifest, then sync; conda + pypi resolve through pixi.
+
+        Conda is the default source; `--pypi`/`--cargo`/`--npm`/`--gem` pick another.
+        """
+        source = next(
+            (s for s, on in zip(ECOSYSTEMS, (pypi, cargo, npm, gem), strict=True) if on), "conda"
+        )
+        if source in PIXI_RESOLVED:
+            self.sync()
+            self.pixi("add", *packages, pypi=source == "pypi", feature=env)
+            self.pull()
+        else:
+            document = Document(self.manifest)
+            document.add(source, env, packages, spec)
+            document.save()
+            self.sync()
+        self.console.print(f"[green]added[/green] {escape(', '.join(packages))}")
+
+    def upgrade(self, *packages: str, env: str = "") -> None:
+        """Bump conda + pypi constraints to the latest allowed, then sync in."""
+        self.sync()
+        self.pixi("upgrade", *packages, feature=env)
+        self.pull()
+        self.console.print(
+            f"[green]upgraded[/green] {escape(', '.join(packages) or 'all conda + pypi deps')}"
+        )
+
+    def remove(self, *packages: str) -> None:
+        """Remove packages from the manifest wherever declared, then re-sync."""
+        document = Document(self.manifest)
+        removed = document.remove(packages)
+        document.save()
+        gone = ", ".join(dict.fromkeys(removed)) or "(nothing found)"
+        self.console.print(f"[green]removed[/green] {escape(gone)}")
+        self.sync()
+
+    def pull(self) -> None:
+        """Mirror pixi's resolved deps back into the manifest."""
+        document = Document(self.manifest)
+        document.pull(tomlkit.parse(self.pixi.manifest.read_text()).unwrap())
+        document.save()
+
+    @staticmethod
+    def row_status(spec: str, version: str | None) -> tuple[str, str, str]:
+        """The (mark, shown version, tally bucket) for a declared dep vs what's installed."""
+        if version is None:
+            return "[red]✗ missing[/red]", "[dim]·[/dim]", "missing"
+        if satisfied(spec, version):
+            return "[green]✓[/green]", version, "ok"
+        return "[yellow]≠ drift[/yellow]", f"[yellow]{version}[/yellow]", "drift"
+
+    def tree(self, env: str = "default") -> None:
+        """Show declared vs installed deps, each checked in its own ecosystem."""
+        declared = self.declared(env)
+        provisioned = self.pixi.installed(env)
+        by_source: dict[str, dict[str, str]] = {
+            "npm": {name: inst.version for name, inst in self.npm.installed(env).items()},
+            "cargo": {name: inst.version for name, inst in self.cargo.installed(env).items()},
+        }
+        for name, inst in provisioned.items():
+            by_source.setdefault(inst.kind, {})[name] = inst.version
+        table = Table(title=f"{NAME} · {env} · declared vs installed", header_style="bold cyan")
+        for column in ("package", "source", "declared", "installed", ""):
+            table.add_column(column)
+        tally: Counter[str] = Counter()
+        for name, dep in sorted(declared.items()):
+            installed = by_source.get(dep.source, {}).get(name)
+            mark, shown, bucket = self.row_status(dep.spec, installed)
+            tally[bucket] += 1
+            table.add_row(name, dep.source, dep.spec, shown, mark)
+        self.console.print(table)
+        transitive = sum(1 for inst in provisioned.values() if not inst.explicit)
+        self.console.print(
+            f"[green]{tally['ok']} ok[/green] · [yellow]{tally['drift']} drift[/yellow] · "
+            f"[red]{tally['missing']} missing[/red] · [dim]{transitive} transitive installed[/dim]"
+        )

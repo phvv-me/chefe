@@ -1,5 +1,5 @@
-# saci's own generated env + manifests
-.saci/
+# chefe's own generated env + manifests
+.chefe/
 
 # python
 __pycache__/
@@ -12,3 +12,8 @@ build/
 # tooling
 .ruff_cache/
 .pytest_cache/
+.hypothesis/
+.coverage
+htmlcov/
+.mypy_cache/
+.pyrefly/
