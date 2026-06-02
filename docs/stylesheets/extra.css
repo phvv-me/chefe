@@ -61,18 +61,56 @@
   width: 1.8rem;
 }
 
-/* landing-page hero: the banner stands in for the title */
+/* landing-page hero: a responsive card that stands in for the title,
+   built in CSS so it fills the column and stays crisp at any width */
 .md-typeset .hero {
-  text-align: center;
   margin: 0.5rem 0 2.5rem;
 }
 
-.md-typeset .hero .hero-banner {
-  display: block;
-  width: 100%;
-  max-width: 720px;
+.md-typeset .hero-card {
+  display: flex;
+  align-items: center;
+  gap: 2rem;
+  background: #16161a;
+  border: 2px solid var(--chefe-amber);
+  border-radius: 20px;
+  padding: 2rem 2.75rem;
+}
+
+.md-typeset .hero-mark {
+  flex: 0 0 auto;
+  width: 92px;
   height: auto;
-  margin: 0 auto;
+}
+
+.md-typeset .hero-copy {
+  display: flex;
+  flex-direction: column;
+}
+
+.md-typeset .hero-word {
+  font-family: "Space Grotesk", sans-serif;
+  font-weight: 700;
+  font-size: 3.6rem;
+  line-height: 1;
+  letter-spacing: -0.03em;
+  color: #fff;
+}
+
+.md-typeset .hero-tag {
+  margin-top: 0.5rem;
+  font-family: "Space Grotesk", sans-serif;
+  font-weight: 500;
+  font-size: 1.15rem;
+  color: var(--chefe-amber);
+}
+
+@media screen and (max-width: 30rem) {
+  .md-typeset .hero-card {
+    flex-direction: column;
+    gap: 1.25rem;
+    text-align: center;
+  }
 }
 
 /* the home page leads with the banner, so visually hide Material's
