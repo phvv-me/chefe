@@ -1,8 +1,10 @@
 <div class="hero" markdown>
 
-![chefe](assets/banner.svg){ .hero-banner }
+![chefe logo](assets/logo.svg){ .hero-logo }
 
-# chefe { .visually-hidden }
+# chefe
+
+One manifest for every package manager. 🧑‍🍳
 
 </div>
 

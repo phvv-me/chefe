@@ -58,4 +58,4 @@ chefe tree                 # what's declared vs installed, per ecosystem
 
 ## Lore
 
-A head chef never cooks every dish alone. They write the recipe and run the line, and the cooks each work their station. chefe does the same for your dependencies. One recipe in, one plated environment out, with pixi, npm, and cargo working the stations. 🧑‍🍳
+A head chef never cooks every dish alone. They write the recipe and run the line, and the cooks each work their station. `chefe` does the same for your dependencies.
