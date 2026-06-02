@@ -24,6 +24,6 @@ files:
     # (so its UI strings resolve). pt-BR / ja / zh-TW pass through unchanged.
     languages_mapping:
       locale:
-        es-ES: es
-        es-419: es
+        es-EM: es
+        ja-JP: ja
         zh-CN: zh
