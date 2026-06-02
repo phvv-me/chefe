@@ -8,6 +8,7 @@ chefe mirrors pixi's verbs over the unified manifest. Most commands take an opti
 | `chefe sync` | compile `chefe.toml` into `.chefe/{pixi.toml, package.json, …}` |
 | `chefe install [env]` | sync, then provision every ecosystem for `env` |
 | `chefe update [env]` | re-solve to the newest allowed versions across ecosystems |
+| `chefe upgrade [pkg…]` | bump the manifest's conda + pypi constraints to the latest, then sync |
 | `chefe add <pkg…>` | add packages to the manifest, then re-sync |
 | `chefe remove <pkg…>` | remove packages wherever they're declared, then re-sync |
 | `chefe tree [env]` | declared vs installed, each dep checked in **its own** ecosystem |

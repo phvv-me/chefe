@@ -79,6 +79,15 @@ LOG_LEVEL = "info"
 CUDA_MODULE_LOADING = "LAZY"
 ```
 
+## Activation scripts
+
+Shell scripts sourced when the environment activates, for setup that static env vars can't express (computed paths, library symlinks). They compile to pixi's `[activation] scripts`; a repo-root path keeps working from the generated `.chefe/`.
+
+```toml
+[activation]
+scripts = ["scripts/activate.sh"]
+```
+
 ## Platform overlays
 
 Conditionally add deps per platform, and they compile to native pixi targets. Any scope nests under `[on.…]`.
@@ -93,11 +102,12 @@ some-arm-wheel = "*"
 
 ## Named environments
 
-Compose extra environments, like pixi features. `no-default = true` excludes the base deps.
+Compose extra environments, like pixi features. `no-default = true` excludes the base deps, and `platforms` restricts the environment to where it can build (so a GPU env is skipped when solving on a laptop).
 
 ```toml
 [envs.serving]
 no-default = true
+platforms  = ["linux-64", "linux-aarch64"]
 
 [envs.serving.pypi.deps]
 vllm = ">=0.6"
