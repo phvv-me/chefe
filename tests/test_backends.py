@@ -3,14 +3,10 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from plumbum import local
 from pytest_subprocess import FakeProcess
 
 from chefe.backends import Cargo, Npm, Pixi, Tool
 from chefe.utils import current_platform
-
-PIXI = str(local["pixi"].executable)  # plumbum invokes the resolved absolute path
-NPM = str(local["npm"].executable)
 
 
 def test_current_platform_shape() -> None:
@@ -84,7 +80,9 @@ def test_pixi_scope_pins_manifest_path(tmp_path: Path) -> None:
     assert pixi.scope() == ("--manifest-path", str(pixi.manifest))
 
 
-def test_pixi_installed_parses_list_json(fp: FakeProcess, tmp_path: Path) -> None:
+def test_pixi_installed_parses_list_json(
+    fp: FakeProcess, tmp_path: Path, tool_paths: dict[str, str]
+) -> None:
     """`installed` maps `pixi list --json` records into Installed entries."""
     pixi = Pixi(tmp_path)
     records = [
@@ -92,7 +90,15 @@ def test_pixi_installed_parses_list_json(fp: FakeProcess, tmp_path: Path) -> Non
         {"name": "rich", "version": "13.7.0", "kind": "pypi", "is_explicit": False},
     ]
     fp.register(
-        [PIXI, "list", "--manifest-path", str(pixi.manifest), "-e", "default", "--json"],
+        [
+            tool_paths["pixi"],
+            "list",
+            "--manifest-path",
+            str(pixi.manifest),
+            "-e",
+            "default",
+            "--json",
+        ],
         stdout=json.dumps(records),
     )
     found = pixi.installed("default")
@@ -100,12 +106,14 @@ def test_pixi_installed_parses_list_json(fp: FakeProcess, tmp_path: Path) -> Non
     assert found["rich"].explicit is False
 
 
-def test_pixi_global_install_builds_argv(fp: FakeProcess, tmp_path: Path) -> None:
+def test_pixi_global_install_builds_argv(
+    fp: FakeProcess, tmp_path: Path, tool_paths: dict[str, str]
+) -> None:
     """`global_install` builds `global install --environment <name> <specs…>` for pixi."""
-    fp.register([PIXI, fp.any()], stdout="")
+    fp.register([tool_paths["pixi"], fp.any()], stdout="")
     Pixi(tmp_path).global_install("shared", ["python>=3.11", "ripgrep"])
     assert list(fp.calls[-1]) == [
-        PIXI,
+        tool_paths["pixi"],
         "global",
         "install",
         "--environment",
@@ -115,13 +123,15 @@ def test_pixi_global_install_builds_argv(fp: FakeProcess, tmp_path: Path) -> Non
     ]
 
 
-def test_npm_scope_pins_prefix_when_invoked(fp: FakeProcess, tmp_path: Path) -> None:
+def test_npm_scope_pins_prefix_when_invoked(
+    fp: FakeProcess, tmp_path: Path, tool_paths: dict[str, str]
+) -> None:
     """An available npm runs with `--prefix <out> --no-audit --no-fund` after the verb."""
     (tmp_path / "package.json").write_text("{}")
-    fp.register([NPM, fp.any()], stdout="")
+    fp.register([tool_paths["npm"], fp.any()], stdout="")
     Npm(tmp_path)("install")
     assert list(fp.calls[-1]) == [
-        NPM,
+        tool_paths["npm"],
         "install",
         "--prefix",
         str(tmp_path),
@@ -130,7 +140,9 @@ def test_npm_scope_pins_prefix_when_invoked(fp: FakeProcess, tmp_path: Path) -> 
     ]
 
 
-def test_cargo_sync_installs_and_uninstalls(fp: FakeProcess, tmp_path: Path) -> None:
+def test_cargo_sync_installs_and_uninstalls(
+    fp: FakeProcess, tmp_path: Path, tool_paths: dict[str, str]
+) -> None:
     """sync installs declared-but-missing crates and uninstalls those no longer declared."""
     out = tmp_path
     cargo = Cargo(out, Pixi(out))
@@ -141,7 +153,9 @@ def test_cargo_sync_installs_and_uninstalls(fp: FakeProcess, tmp_path: Path) -> 
         '[v1]\n"stale 1.0.0 (x)" = ["stale"]\n"kept 2.0.0 (x)" = ["kept"]\n'
     )
     fp.keep_last_process(True)
-    fp.register([PIXI, "run", fp.any()], stdout="")  # any `pixi run cargo …` succeeds
+    fp.register(
+        [tool_paths["pixi"], "run", fp.any()], stdout=""
+    )  # any `pixi run cargo …` succeeds
 
     cargo.sync("default", {"fresh": ">=2.0", "wild": "*", "kept": "2.0.0"})
 

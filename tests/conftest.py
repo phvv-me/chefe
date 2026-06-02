@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import os
+from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
+from plumbum import local
 
 from chefe.backends import Cargo, Npm, Pixi, Tool
 from chefe.manager import PackageManager
@@ -40,6 +43,23 @@ def workspace(tmp_path: Path):
 def document(manifest_path: Path) -> Document:
     """A `Document` over a fresh header-only manifest."""
     return Document(manifest_path)
+
+
+@pytest.fixture
+def tool_paths(tmp_path_factory: pytest.TempPathFactory) -> Iterator[dict[str, str]]:
+    """Stub `pixi`/`npm`/`cargo` executables on plumbum's PATH so backend commands resolve
+    without the real tools installed; `pytest-subprocess` intercepts the actual invocation.
+    Yields each tool's resolved absolute path (what plumbum runs, so what a fake registers).
+    """
+    bindir = tmp_path_factory.mktemp("bin")
+    paths: dict[str, str] = {}
+    for tool in ("pixi", "npm", "cargo"):
+        executable = bindir / tool
+        executable.write_text("#!/bin/sh\n")
+        executable.chmod(0o755)
+        paths[tool] = str(executable)
+    with local.env(PATH=f"{bindir}{os.pathsep}{local.env['PATH']}"):
+        yield paths
 
 
 @pytest.fixture
