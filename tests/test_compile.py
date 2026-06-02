@@ -82,3 +82,25 @@ def test_package_json_snapshot(manifest: Manifest, snapshot) -> None:  # noqa: A
     package = PackageJson.from_manifest(manifest)
     rendered = package.to_json() if package is not None else "<none>"
     assert rendered == snapshot
+
+
+def test_activation_scripts_resolve_from_the_chefe_dir() -> None:
+    """A repo-root activation script is rewritten one level up (the manifest lives in `.chefe/`);
+    an absolute path rides through untouched."""
+    manifest = Manifest.model_validate(
+        tomllib.loads(
+            """
+[workspace]
+name = "demo"
+platforms = ["linux-64"]
+
+[activation]
+scripts = ["scripts/activate.sh", "/opt/hook.sh"]
+
+[deps]
+python = ">=3.11"
+"""
+        )
+    )
+    pixi = PixiManifest.from_manifest(manifest)
+    assert pixi.activation["scripts"] == ["../scripts/activate.sh", "/opt/hook.sh"]

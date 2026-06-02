@@ -150,6 +150,12 @@ class Header(Model):
     dotenv: bool = True
 
 
+class Activation(Model):
+    """Scripts sourced when the environment activates → pixi ``[activation] scripts``."""
+
+    scripts: list[str] = []
+
+
 class Manifest(Scope):
     """The whole manifest: a :class:`Scope` plus identity, conditions, env, tasks."""
 
@@ -158,6 +164,7 @@ class Manifest(Scope):
     on: dict[str, Scope] = {}  # [on.<platform>]  → pixi [target.*]
     envs: dict[str, Env] = {}  # [envs.<name>]    → pixi [feature]+[environments]
     env: dict[str, str] = {}  # env vars
+    activation: Activation = Activation()  # [activation] scripts
     tasks: dict[str, Task] = {}
 
     @classmethod

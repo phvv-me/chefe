@@ -37,7 +37,16 @@ class PixiManifest(Model):
     def from_manifest(cls, m: Manifest) -> PixiManifest:
         """Build the pixi manifest from a validated :class:`Manifest`."""
         indexes = m.pypi.indexes
-        activation = {k: v for k, v in m.env.items() if not k.startswith("_.")}
+        env = {k: v for k, v in m.env.items() if not k.startswith("_.")}
+        activation: dict[str, Toml] = {}
+        if env:
+            activation["env"] = env
+        if m.activation.scripts:
+            # the manifest is emitted under `.chefe/`, so a repo-root script path
+            # resolves one directory up from where pixi runs it
+            activation["scripts"] = [
+                path if path.startswith("/") else f"../{path}" for path in m.activation.scripts
+            ]
         return cls.model_validate(
             {
                 "workspace": {
@@ -47,7 +56,7 @@ class PixiManifest(Model):
                     "platforms": m.workspace.platforms,
                 },
                 "system-requirements": m.system,
-                "activation": {"env": activation} if activation else {},
+                "activation": activation,
                 **m.tables(indexes),
                 "pypi-options": m.pypi.options(),
                 "target": {plat: scope.tables(indexes) for plat, scope in m.on.items()},
