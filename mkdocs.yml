@@ -44,6 +44,7 @@ nav:
   - Home: index.md
   - Manifest: manifest.md
   - Commands: commands.md
+  - Examples: examples.md
 
 markdown_extensions:
   - admonition
@@ -98,5 +99,6 @@ plugins:
         Usage:
           - index.md
           - commands.md
+          - examples.md
         Reference:
           - manifest.md
