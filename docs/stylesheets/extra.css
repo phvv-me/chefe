@@ -61,7 +61,7 @@
   width: 1.8rem;
 }
 
-/* landing-page hero: a prominent, centered logo and title */
+/* landing-page hero: the banner stands in for the title */
 .md-typeset .hero {
   text-align: center;
   margin: 0.5rem 0 2.5rem;
@@ -75,8 +75,9 @@
   margin: 0 auto;
 }
 
-/* keep an H1 for document structure without repeating the banner wordmark */
-.visually-hidden {
+/* the home page leads with the banner, so visually hide Material's
+   auto-injected page title while leaving it for screen readers */
+.md-content__inner:has(> .hero) > h1:first-child {
   position: absolute;
   width: 1px;
   height: 1px;

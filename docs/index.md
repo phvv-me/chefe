@@ -2,8 +2,6 @@
 
 ![chefe — one manifest for every package manager](assets/banner.svg){ .hero-banner }
 
-# chefe { .visually-hidden }
-
 </div>
 
 ## Installation
