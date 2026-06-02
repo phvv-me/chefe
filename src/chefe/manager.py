@@ -1,8 +1,10 @@
 import shutil
 from collections import Counter
 from pathlib import Path
+from typing import Annotated
 
 import tomlkit
+from cyclopts import Parameter
 from rich.console import Console
 from rich.markup import escape
 from rich.table import Table
@@ -92,11 +94,15 @@ class PackageManager:
             f"[green]installed[/green] {len(specs)} deps into [bold]{escape(name)}[/bold]"
         )
 
-    def run(self, task: str, *args: str) -> None:
+    def run(self, task: str, *args: Annotated[str, Parameter(allow_leading_hyphen=True)]) -> None:
         """Run a task inside the env."""
         self.pixi("run", task, *args)
 
-    def x(self, *args: str, with_: tuple[str, ...] = ()) -> None:
+    def x(
+        self,
+        *args: Annotated[str, Parameter(allow_leading_hyphen=True)],
+        with_: tuple[str, ...] = (),
+    ) -> None:
         """Run a command in a throwaway env, like uvx or pipx run; no manifest needed.
 
         args: the command and its arguments, e.g. `chefe x ruff check .`.

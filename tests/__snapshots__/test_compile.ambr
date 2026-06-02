@@ -63,12 +63,14 @@
   features = ["serving"]
   no-default-feature = true
   
-  [tasks]
-  build = "python -m demo.build"
+  [tasks.build]
+  cmd = "python -m demo.build"
+  cwd = ".."
   
   [tasks.serve]
   cmd = "python -m demo.server"
   depends-on = ["build"]
+  cwd = ".."
   
   '''
 # ---

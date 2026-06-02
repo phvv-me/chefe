@@ -27,11 +27,19 @@ class PixiManifest(Model):
 
     @staticmethod
     def task(spec: Task) -> Task:
-        """Translate a mise-style task into pixi's (`run` -> `cmd`, `depends` -> `depends-on`)."""
+        """Translate a mise-style task into pixi's (`run` -> `cmd`, `depends` -> `depends-on`).
+
+        Tasks run from the repo root, which is one directory up from the generated `.chefe/`,
+        so repo-relative commands (`python -m pkg`, `node_modules/.bin/x`) resolve as written.
+        """
+        out: dict[str, Toml] = {}
         if isinstance(spec, str):
-            return spec
-        renamed = {"run": "cmd", "depends": "depends-on", "dir": "cwd"}
-        return {renamed.get(key, key): value for key, value in spec.items()}
+            out["cmd"] = spec
+        else:
+            renamed = {"run": "cmd", "depends": "depends-on", "dir": "cwd"}
+            out = {renamed.get(key, key): value for key, value in spec.items()}
+        out["cwd"] = f"../{out['cwd']}" if "cwd" in out else ".."
+        return out
 
     @classmethod
     def from_manifest(cls, m: Manifest) -> PixiManifest:
