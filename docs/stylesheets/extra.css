@@ -67,15 +67,25 @@
   margin: 0.5rem 0 2.5rem;
 }
 
-.md-typeset .hero .hero-logo {
+.md-typeset .hero .hero-banner {
   display: block;
-  width: 132px;
+  width: 100%;
+  max-width: 720px;
   height: auto;
-  margin: 0 auto 0.5rem;
+  margin: 0 auto;
 }
 
-.md-typeset .hero h1 {
-  margin: 0 0 0.25rem;
+/* keep an H1 for document structure without repeating the banner wordmark */
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
 }
 
 /* center the flow diagram */
