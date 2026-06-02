@@ -1,12 +1,6 @@
-<div class="hero">
-  <div class="hero-card">
-    <img class="hero-mark" src="assets/logo.png" alt="chefe">
-    <div class="hero-copy">
-      <span class="hero-word">chefe</span>
-      <span class="hero-tag">One manifest for every package manager</span>
-    </div>
-  </div>
-</div>
+# chefe
+
+One manifest for every package manager
 
 ## Installation
 
