@@ -117,7 +117,7 @@ Install or inspect one with `chefe install serving` or `chefe tree serving`.
 
 ## Tasks
 
-Named commands that run inside the environment, reached with `chefe run <task>`.
+Named commands that run inside the environment, reached with `chefe run <task>`. They run *code*, never install dependencies. Every package belongs in its ecosystem's `[<eco>.deps]` so `chefe install` and `chefe global` own it. A task that shells out to `npm install -g` or `cargo install` is the anti-pattern chefe replaces.
 
 ```toml
 [tasks]

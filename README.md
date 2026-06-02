@@ -7,6 +7,7 @@
 [![PyPI](https://img.shields.io/pypi/v/chefe)](https://pypi.org/project/chefe/)
 [![Python](https://img.shields.io/pypi/pyversions/chefe)](https://pypi.org/project/chefe/)
 [![Docs](https://img.shields.io/badge/docs-phvv.me%2Fchefe-EAB308)](https://phvv.me/chefe)
+[![Coverage](https://img.shields.io/badge/coverage-100%25-brightgreen)](https://github.com/phvv-me/chefe/actions/workflows/ci.yml)
 
 </div>
 

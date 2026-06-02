@@ -15,7 +15,7 @@ chefe mirrors pixi's verbs over the unified manifest. Most commands take an opti
 | `chefe run <task> [args…]` | run a task inside the environment |
 | `chefe x <cmd…>` | run a command in a throwaway env, like uvx or pipx run |
 | `chefe shell [env]` | open an activated shell in `env` |
-| `chefe global install [name]` | install the conda deps into the shared global pixi env |
+| `chefe global install [name]` | install every ecosystem's deps into a shared global env |
 | `chefe clean` | remove the generated `.chefe/` env and manifests |
 
 ## init
@@ -68,9 +68,11 @@ Like `uvx` or `pipx run`, `chefe x` provisions an ephemeral environment for the 
 
 ## global install
 
+Provision every ecosystem into one shared global env, the parity of `chefe install` for tools you want everywhere. conda goes through `pixi global`, which also pulls in the python/node/rust runtimes; the global env's own pip/npm/cargo then add the pypi/npm/cargo deps. No uv involved.
+
 ```sh
-chefe global install          # exposes the conda [deps] as a shared global env
-chefe global install mytools
+chefe global install          # every ecosystem's deps into a shared global env
+chefe global install mytools  # name the env explicitly
 ```
 
 ## clean

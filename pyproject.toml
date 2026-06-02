@@ -89,7 +89,7 @@ module = ["plumbum.*"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]
-addopts = "-q -ra --strict-markers"
+addopts = "-q -ra --strict-markers --cov=chefe --cov-report=term-missing"
 testpaths = ["tests"]
 
 [tool.coverage.run]
@@ -97,6 +97,7 @@ source = ["chefe"]
 branch = true
 
 [tool.coverage.report]
+fail_under = 100
 show_missing = true
 exclude_lines = [
   "pragma: no cover",
