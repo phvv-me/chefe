@@ -41,7 +41,7 @@ extra_css:
   - stylesheets/extra.css
 
 nav:
-  - Home: index.md
+  - chefe: index.md
   - Manifest: manifest.md
   - Commands: commands.md
   - Examples: examples.md
