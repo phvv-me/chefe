@@ -10,7 +10,7 @@ tmp="$(mktemp -d)"
 cat > "$tmp/banner.svg" <<SVG
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 320" fill="none">
   <rect width="1200" height="320" rx="32" fill="#16161a"/>
-  <rect x="3" y="3" width="1194" height="314" rx="30" fill="none" stroke="#eab308" stroke-width="2" opacity="0.5"/>
+  <rect x="3" y="3" width="1194" height="314" rx="30" fill="none" stroke="#eab308" stroke-width="5" opacity="0.7"/>
   <g transform="translate(58 64) scale(2)" stroke="#eab308" stroke-linecap="round" stroke-linejoin="round" fill="none" stroke-width="4">
 $mark
   </g>
