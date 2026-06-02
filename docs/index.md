@@ -53,14 +53,46 @@ chefe tree                 # what's declared vs installed, per ecosystem
 ## How it fits together
 
 ```mermaid
-flowchart LR
-    M(["chefe.toml"]):::brand
-    M -->|chefe sync| P["pixi.toml"] --> PIXI["pixi<br/>conda · PyPI via uv"] --> ENV
-    M -->|chefe sync| N["package.json"] --> NPM["npm"] --> ENV
-    M -->|chefe sync| C["cargo / gem specs"] --> CARGO["cargo · gem"] --> ENV
-    ENV(["one activated<br/>environment"]):::brandDark
+flowchart TB
+    subgraph recipe["one recipe (chefe.toml)"]
+        direction LR
+        D["[deps]<br/>conda"]
+        PY["[pypi.deps]"]
+        NP["[npm.deps]"]
+        CG["[cargo.deps]"]
+    end
+
+    subgraph compiled["chefe sync generates .chefe/"]
+        direction LR
+        PT["pixi.toml"]
+        PJ["package.json"]
+    end
+
+    subgraph solve["chefe install runs the real tools"]
+        direction LR
+        PIXI["pixi<br/>conda-forge"]
+        UV["uv<br/>inside pixi"]
+        NPM["npm"]
+        CARGO["cargo<br/>via pixi run cargo"]
+    end
+
+    ENV(["one activated environment<br/>.chefe/ prefix on PATH"]):::brand
+
+    D --> PT
+    PY --> PT
+    NP --> PJ
+    CG -. no file, installs in-place .-> CARGO
+
+    PT --> PIXI
+    PIXI --> UV
+    PJ --> NPM
+
+    PIXI --> ENV
+    UV --> ENV
+    NPM --> ENV
+    CARGO --> ENV
+
     classDef brand fill:#eab308,stroke:#1a1a1a,stroke-width:2px,color:#1a1a1a;
-    classDef brandDark fill:#1a1a1a,stroke:#eab308,stroke-width:2px,color:#ffffff;
 ```
 
 - **Structure** is validated by chefe's schema, while **package specs** stay each tool's job.
