@@ -4,6 +4,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 import pytest
+from faker import Faker
 
 from chefe.backends import Cargo, Npm, Pixi
 from chefe.manager import PackageManager
@@ -12,13 +13,14 @@ from chefe.state import Installed
 Workspace = Callable[[str], PackageManager]
 
 
-def test_init_scaffolds_then_is_idempotent(tmp_path: Path) -> None:
+def test_init_scaffolds_then_is_idempotent(tmp_path: Path, faker_instance: Faker) -> None:
     """init writes a starter manifest once and leaves an existing one untouched."""
+    project, other = faker_instance.word(), faker_instance.word()
     manager = PackageManager(tmp_path)
-    manager.init("myproj")
+    manager.init(project)
     text = (tmp_path / "chefe.toml").read_text()
-    assert 'name = "myproj"' in text and "[deps]" in text
-    manager.init("other")  # second call must not overwrite
+    assert f'name = "{project}"' in text and "[deps]" in text
+    manager.init(other)  # second call must not overwrite
     assert (tmp_path / "chefe.toml").read_text() == text
 
 

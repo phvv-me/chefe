@@ -5,7 +5,9 @@ from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
+from faker import Faker
 from plumbum import local
+from pytest_mock import MockerFixture
 
 from chefe.backends import Cargo, Npm, Pixi, Tool
 from chefe.manager import PackageManager
@@ -13,6 +15,13 @@ from chefe.manifest import Document
 
 # A `[workspace]` header pinned to a fixed platform so generated manifests are deterministic.
 HEADER = '[workspace]\nname = "w"\nplatforms = ["linux-64"]\n\n'
+
+
+@pytest.fixture(scope="session")
+def faker_instance() -> Faker:
+    """A seeded Faker shared across the session so example data stays reproducible."""
+    Faker.seed(0xC4EFE)
+    return Faker()
 
 
 def write_manifest(root: Path, body: str = "") -> Path:
@@ -63,11 +72,12 @@ def tool_paths(tmp_path_factory: pytest.TempPathFactory) -> Iterator[dict[str, s
 
 
 @pytest.fixture
-def recording_backends(monkeypatch: pytest.MonkeyPatch) -> list[tuple[str, ...]]:
+def recording_backends(mocker: MockerFixture) -> list[tuple[str, ...]]:
     """Replace every subprocess seam with a recorder of `(Backend, verb, *flags, *args)`.
 
     Returns the shared call list so a test can assert exactly which argv the manager built,
-    while the real tools are never invoked.
+    while the real tools are never invoked. Every backend's `__call__` shares one recorder,
+    so the list is a single cross-backend, ordered, flag-normalized view of every invocation.
     """
     calls: list[tuple[str, ...]] = []
 
@@ -76,8 +86,13 @@ def recording_backends(monkeypatch: pytest.MonkeyPatch) -> list[tuple[str, ...]]
         return True
 
     for backend in (Pixi, Npm, Cargo):
-        monkeypatch.setattr(backend, "__call__", record)
-        monkeypatch.setattr(backend, "installed", lambda self, env: {})
-    monkeypatch.setattr(Cargo, "sync", lambda self, env, declared: calls.append(("Cargo", "sync")))
-    monkeypatch.setattr(Pixi, "global_install", record)
+        mocker.patch.object(backend, "__call__", side_effect=record, autospec=True)
+        mocker.patch.object(backend, "installed", side_effect=lambda self, env: {}, autospec=True)
+    mocker.patch.object(
+        Cargo,
+        "sync",
+        side_effect=lambda self, env, declared: calls.append(("Cargo", "sync")),
+        autospec=True,
+    )
+    mocker.patch.object(Pixi, "global_install", side_effect=record, autospec=True)
     return calls

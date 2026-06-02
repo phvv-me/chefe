@@ -51,6 +51,8 @@ dev = [
   "pytest-cov>=5",
   "syrupy>=4",
   "pytest-subprocess>=1.5",
+  "pytest-mock>=3.14",
+  "faker>=30",
   "dirty-equals>=0.8",
 ]
 docs = ["mkdocs-material>=9.5", "mkdocs-llmstxt>=0.2"]
