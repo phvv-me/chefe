@@ -50,7 +50,7 @@ chefe tree                 # what's declared vs installed, per ecosystem
 
 ```mermaid
 flowchart TB
-    subgraph recipe["one recipe (chefe.toml)"]
+    subgraph recipe["一份食谱 (chefe.toml)"]
         direction LR
         D["[deps]<br/>conda"]
         PY["[pypi.deps]"]
@@ -58,26 +58,26 @@ flowchart TB
         CG["[cargo.deps]"]
     end
 
-    subgraph compiled["chefe sync generates .chefe/"]
+    subgraph compiled["chefe sync 生成 .chefe/"]
         direction LR
         PT["pixi.toml"]
         PJ["package.json"]
     end
 
-    subgraph solve["chefe install runs the real tools"]
+    subgraph solve["chefe install 运行真正的工具"]
         direction LR
         PIXI["pixi<br/>conda-forge"]
-        UV["uv<br/>inside pixi"]
+        UV["uv<br/>在 pixi 内部"]
         NPM["npm"]
-        CARGO["cargo<br/>via pixi run cargo"]
+        CARGO["cargo<br/>通过 pixi run cargo"]
     end
 
-    ENV(["one activated environment<br/>.chefe/ prefix on PATH"]):::brand
+    ENV(["一个已激活的环境<br/>PATH 上的 .chefe/ 前缀"]):::brand
 
     D --> PT
     PY --> PT
     NP --> PJ
-    CG -. no file, installs in-place .-> CARGO
+    CG -. 无文件，就地安装 .-> CARGO
 
     PT --> PIXI
     PIXI --> UV
