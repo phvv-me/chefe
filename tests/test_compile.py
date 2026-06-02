@@ -49,6 +49,9 @@ cupy = ">=13"
 no-default = true
 platforms = ["linux-64"]
 
+[envs.serving.system]
+cuda = "12.0"
+
 [envs.serving.pypi.deps]
 vllm = ">=0.6"
 

@@ -56,6 +56,9 @@
   [feature.serving.pypi-dependencies]
   vllm = ">=0.6"
   
+  [feature.serving.system-requirements]
+  cuda = "12.0"
+  
   [environments.serving]
   features = ["serving"]
   no-default-feature = true
