@@ -1,0 +1,22 @@
+# Crowdin sync config. Translations land next to the English source as
+# `<page>.<locale>.md`, which mkdocs-static-i18n serves per language.
+# Requires the env vars CROWDIN_PROJECT_ID and CROWDIN_PERSONAL_TOKEN.
+project_id_env: CROWDIN_PROJECT_ID
+api_token_env: CROWDIN_PERSONAL_TOKEN
+preserve_hierarchy: true
+
+files:
+  - source: /docs/**/*.md
+    ignore:
+      - "/docs/**/*.pt-BR.md"
+      - "/docs/**/*.es.md"
+      - "/docs/**/*.ja.md"
+      - "/docs/**/*.zh.md"
+    translation: "/%original_path%/%file_name%.%locale%.%file_extension%"
+    # Map Crowdin's language ids onto the file suffix mkdocs expects.
+    languages_mapping:
+      locale:
+        pt-BR: pt-BR
+        es-419: es
+        ja: ja
+        zh-CN: zh

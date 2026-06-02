@@ -67,6 +67,27 @@ markdown_extensions:
 
 plugins:
   - search
+  - i18n:
+      docs_structure: suffix
+      reconfigure_material: true
+      reconfigure_search: true
+      fallback_to_default: true
+      languages:
+        - locale: en
+          name: English
+          default: true
+        - locale: pt-BR
+          name: Português (BR)
+          build: true
+        - locale: es
+          name: Español (LatAm)
+          build: true
+        - locale: ja
+          name: 日本語
+          build: true
+        - locale: zh
+          name: 中文
+          build: true
   - llmstxt:
       markdown_description: One manifest for conda, PyPI, npm, cargo and more, compiled into native files and run by the real tools.
       full_output: llms-full.txt

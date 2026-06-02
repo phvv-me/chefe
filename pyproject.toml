@@ -55,7 +55,7 @@ dev = [
   "faker>=30",
   "dirty-equals>=0.8",
 ]
-docs = ["mkdocs-material>=9.5", "mkdocs-llmstxt>=0.2"]
+docs = ["mkdocs-material>=9.5", "mkdocs-llmstxt>=0.2", "mkdocs-static-i18n>=1.2"]
 
 [project.scripts]
 chefe = "chefe.cli:app"
