@@ -15,7 +15,6 @@ files:
       - "/docs/**/*.es.md"
       - "/docs/**/*.ja.md"
       - "/docs/**/*.zh.md"
-      - "/docs/**/*.zh-TW.md"
     translation: "/%original_path%/%file_name%.%locale%.%file_extension%"
     # Tag uploaded strings so they're easy to filter in Crowdin.
     labels:
@@ -24,6 +23,8 @@ files:
     # (so its UI strings resolve). pt-BR / ja / zh-TW pass through unchanged.
     languages_mapping:
       locale:
+        es-ES: es
         es-EM: es
+        es-419: es
         ja-JP: ja
         zh-CN: zh
