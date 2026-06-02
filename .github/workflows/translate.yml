@@ -28,7 +28,7 @@ jobs:
         with:
           apikey: ${{ secrets.GEMINI_API_KEY }}
           provider: google
-          model: models/gemini-3.5-flash
+          model: models/gemini-3.1-flash-lite
           # Each output pattern lines up with the language at the same position;
           # the * maps every input page into that locale's suffixed file.
           inputFiles: docs/index.md docs/commands.md docs/manifest.md docs/examples.md
