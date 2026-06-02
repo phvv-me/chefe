@@ -1,7 +1,7 @@
 # Single source of truth for how docs sync with Crowdin (read by the GitHub
 # integration). Only project-level settings Crowdin cannot read from a file
-# stay in the web UI, one time: TARGET LANGUAGES, machine translation, and the
-# glossary (terms live in i18n/glossary.csv here; import them once).
+# stay in the web UI, one time: target languages, machine translation, and the
+# glossary.
 preserve_hierarchy: true
 
 # Title of the translation PR Crowdin opens against the base branch.
