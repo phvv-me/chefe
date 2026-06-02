@@ -1,20 +1,15 @@
 <div align="center">
 
-<img src="docs/assets/logo.svg" width="148" alt="chefe logo, a domed serving cloche" />
-
-# chefe
-
-**One manifest for every package manager.** 🧑‍🍳
+[![chefe banner](https://raw.githubusercontent.com/phvv-me/chefe/main/docs/assets/banner.png)](https://phvv.me/chefe)
 
 [![CI](https://github.com/phvv-me/chefe/actions/workflows/ci.yml/badge.svg)](https://github.com/phvv-me/chefe/actions/workflows/ci.yml)
 [![PyPI](https://img.shields.io/pypi/v/chefe.svg?color=EAB308)](https://pypi.org/project/chefe/)
 [![Docs](https://img.shields.io/badge/docs-phvv.me%2Fchefe-EAB308)](https://phvv.me/chefe)
-[![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
+[![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](https://github.com/phvv-me/chefe/blob/main/LICENSE)
 
 </div>
 
-> [!WARNING]
-> **chefe is early (`0.0.x`).** The manifest and commands may still change.
+> **Warning** chefe is early (`0.0.x`). The manifest and commands may still change.
 
 ## Installation
 
@@ -53,14 +48,13 @@ prettier = ">=3"
 chefe init                 # scaffold a chefe.toml
 chefe add ripgrep          # add deps, use --pypi / --cargo / --npm for others
 chefe install              # provision every ecosystem at once
+chefe x ruff check .       # run a tool in a throwaway env, like uvx
 chefe tree                 # what's declared vs installed, per ecosystem
 ```
 
-> [!TIP]
-> Run `chefe tree` anytime to see declared vs installed across every ecosystem at a glance. ✅
+> **Tip** run `chefe tree` anytime to see declared vs installed across every ecosystem at a glance.
 
-> [!NOTE]
-> Full documentation lives at **[phvv.me/chefe](https://phvv.me/chefe)**.
+> **Note** full documentation lives at [phvv.me/chefe](https://phvv.me/chefe).
 
 ## Lore
 

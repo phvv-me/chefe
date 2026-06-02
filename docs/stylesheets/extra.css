@@ -78,6 +78,26 @@
   margin: 0 0 0.25rem;
 }
 
+.md-typeset .hero .hero-banner {
+  display: block;
+  width: 100%;
+  max-width: 680px;
+  height: auto;
+  margin: 0.5rem auto 0;
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
 /* center the flow diagram */
 .md-typeset .mermaid {
   text-align: center;
