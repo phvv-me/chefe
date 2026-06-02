@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="docs/assets/logo.svg" width="120" alt="chefe logo, a domed serving cloche" />
+<img src="docs/assets/logo.svg" width="148" alt="chefe logo, a domed serving cloche" />
 
 # chefe
 
@@ -15,6 +15,16 @@
 
 > [!WARNING]
 > **chefe is early (`0.0.x`).** The manifest and commands may still change.
+
+## Installation
+
+```sh
+curl -fsSL https://phvv.me/chefe/install.sh | sh
+```
+
+This installs [pixi](https://pixi.sh) (the engine chefe compiles to) and chefe itself. Prefer the raw package? Use `pip install chefe` or `uv tool install chefe`.
+
+## What it is
 
 Conda, PyPI, npm, cargo. Real projects need several at once, scattered across `pixi.toml`, `package.json`, and `Cargo.toml`. chefe is the head chef. You write **one `chefe.toml`** recipe, chefe runs the line (pixi, npm, cargo) and plates a single environment. It never re-implements a solver. It runs the cooks.
 
@@ -37,15 +47,7 @@ bookokrat = "*"
 prettier = ">=3"
 ```
 
-## Installation
-
-```sh
-curl -fsSL https://phvv.me/chefe/install.sh | sh
-```
-
-This installs [pixi](https://pixi.sh) (the engine chefe compiles to) and chefe itself. Prefer the raw package? Use `pip install chefe` or `uv tool install chefe`.
-
-## Basic usage
+## Usage
 
 ```sh
 chefe init                 # scaffold a chefe.toml

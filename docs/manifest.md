@@ -2,7 +2,7 @@
 
 Everything lives in one `chefe.toml`. The header configures the workspace, `[deps]` and the per-ecosystem tables declare packages, and platform overlays and named environments compose on top.
 
-## Header `[workspace]`
+## Workspace
 
 ```toml
 [workspace]
@@ -12,7 +12,7 @@ channels = ["conda-forge", "nvidia"]
 dotenv   = true                 # read .env into the environment, on by default
 ```
 
-## Conda deps `[deps]`
+## Dependencies
 
 The bare `[deps]` table is **conda**, the default source. A bare string is a version spec, and `*` means any.
 
@@ -24,7 +24,7 @@ ripgrep = "*"
 pueue  = ">=4"
 ```
 
-## PyPI `[pypi]` and `[pypi.deps]`
+## PyPI
 
 PyPI packages are resolved by pixi-via-`uv` into the **same** environment. `[pypi]` holds settings, `[pypi.deps]` the packages, and `[pypi.indexes]` named extra indexes.
 
@@ -40,7 +40,7 @@ torch = { version = ">=2.6", index = "pytorch" }
 ruff  = ">=0.6"
 ```
 
-## Other ecosystems `[<eco>.deps]`
+## Other ecosystems
 
 Every other ecosystem is explicit, so nothing is inferred.
 
@@ -60,7 +60,7 @@ prettier = ">=3"
     `python` (or others) in `[deps]` and chefe leaves it alone. This holds per environment too,
     so a `no-default` env that uses `[pypi.deps]` still gets its own `python`.
 
-## System requirements `[system]`
+## System requirements
 
 The conda virtual-package floor used for cross-platform solving, not a module-load.
 
@@ -69,7 +69,7 @@ The conda virtual-package floor used for cross-platform solving, not a module-lo
 cuda = "13.0"
 ```
 
-## Environment variables `[env]`
+## Environment variables
 
 Static variables applied when the environment activates. `.env` is also read by default, toggled with `dotenv` in the header.
 
@@ -79,7 +79,7 @@ LOG_LEVEL = "info"
 CUDA_MODULE_LOADING = "LAZY"
 ```
 
-## Platform overlays `[on.<platform>]`
+## Platform overlays
 
 Conditionally add deps per platform, and they compile to native pixi targets. Any scope nests under `[on.…]`.
 
@@ -91,7 +91,7 @@ cupy = ">=13"
 some-arm-wheel = "*"
 ```
 
-## Named environments `[envs.<name>]`
+## Named environments
 
 Compose extra environments, like pixi features. `no-default = true` excludes the base deps.
 
@@ -105,7 +105,7 @@ vllm = ">=0.6"
 
 Install or inspect one with `chefe install serving` or `chefe tree serving`.
 
-## Tasks `[tasks]`
+## Tasks
 
 Named commands that run inside the environment, reached with `chefe run <task>`.
 

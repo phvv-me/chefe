@@ -53,3 +53,32 @@
   border-color: var(--chefe-amber);
   box-shadow: 0 0 0 1px var(--chefe-amber);
 }
+
+/* a larger header logo than Material's tiny default */
+.md-header__button.md-logo img,
+.md-header__button.md-logo svg {
+  height: 1.8rem;
+  width: 1.8rem;
+}
+
+/* landing-page hero: a prominent, centered logo and title */
+.md-typeset .hero {
+  text-align: center;
+  margin: 0.5rem 0 2.5rem;
+}
+
+.md-typeset .hero .hero-logo {
+  display: block;
+  width: 132px;
+  height: auto;
+  margin: 0 auto 0.5rem;
+}
+
+.md-typeset .hero h1 {
+  margin: 0 0 0.25rem;
+}
+
+/* center the flow diagram */
+.md-typeset .mermaid {
+  text-align: center;
+}

@@ -1,6 +1,22 @@
+<div class="hero" markdown>
+
+![chefe logo](assets/logo.svg){ .hero-logo }
+
 # chefe
 
-**One manifest for every package manager.** 🧑‍🍳
+One manifest for every package manager. 🧑‍🍳
+
+</div>
+
+## Installation
+
+```sh
+curl -fsSL https://phvv.me/chefe/install.sh | sh
+```
+
+This installs [pixi](https://pixi.sh) (the engine chefe compiles to) and chefe itself. Prefer the raw package? Use `pip install chefe` or `uv tool install chefe`.
+
+## What it is
 
 Conda, PyPI, npm, cargo. Real projects need several at once, scattered across `pixi.toml`, `package.json`, and `Cargo.toml`. chefe is the head chef. You write **one `chefe.toml`** recipe, it compiles each native manifest under `.chefe/`, runs the real tools, and plates them as a single environment. It never re-implements a solver. It runs the cooks.
 
@@ -27,14 +43,6 @@ Conda, PyPI, npm, cargo. Real projects need several at once, scattered across `p
 !!! warning "chefe is early (`0.0.x`)"
     The manifest format and commands may still change.
 
-## Installation
-
-```sh
-curl -fsSL https://phvv.me/chefe/install.sh | sh
-```
-
-This installs [pixi](https://pixi.sh) (the engine chefe compiles to) and chefe itself. Prefer the raw package? Use `pip install chefe` or `uv tool install chefe`.
-
 ## Quickstart
 
 ```sh
@@ -46,10 +54,15 @@ chefe tree                 # what's declared vs installed, per ecosystem
 
 ## How it fits together
 
-```
-chefe.toml ──▶ chefe sync ──▶ .chefe/pixi.toml      ──▶ pixi  (conda + PyPI via uv)
-                              .chefe/package.json    ──▶ npm
-                              cargo / gem specs       ──▶ native tools
+```mermaid
+flowchart LR
+    M(["chefe.toml"]):::brand
+    M -->|chefe sync| P["pixi.toml"] --> PIXI["pixi<br/>conda · PyPI via uv"] --> ENV
+    M -->|chefe sync| N["package.json"] --> NPM["npm"] --> ENV
+    M -->|chefe sync| C["cargo / gem specs"] --> CARGO["cargo · gem"] --> ENV
+    ENV(["one activated<br/>environment"]):::brandDark
+    classDef brand fill:#eab308,stroke:#1a1a1a,stroke-width:2px,color:#1a1a1a;
+    classDef brandDark fill:#1a1a1a,stroke:#eab308,stroke-width:2px,color:#ffffff;
 ```
 
 - **Structure** is validated by chefe's schema, while **package specs** stay each tool's job.

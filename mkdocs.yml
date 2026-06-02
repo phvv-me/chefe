@@ -3,7 +3,7 @@ site_description: One manifest for every package manager.
 site_url: https://phvv.me/chefe/
 repo_url: https://github.com/phvv-me/chefe
 repo_name: phvv-me/chefe
-copyright: MIT · Pedro Valois
+copyright: Apache-2.0 · Pedro Valois
 
 theme:
   name: material
@@ -58,7 +58,11 @@ markdown_extensions:
       emoji_generator: !!python/name:material.extensions.emoji.to_svg
   - pymdownx.highlight:
       anchor_linenums: true
-  - pymdownx.superfences
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
   - pymdownx.inlinehilite
 
 plugins:
