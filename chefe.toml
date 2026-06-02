@@ -1,8 +1,0 @@
-[workspace]
-name = "proj"
-version = "0.1.0"
-platforms = ["osx-arm64"]
-channels = ["conda-forge"]
-
-[deps]
-python = ">=3.11"

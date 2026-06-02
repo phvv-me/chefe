@@ -1,3 +1,6 @@
+# a chefe.toml created by manual `chefe init` testing (chefe is not self-hosted)
+chefe.toml
+
 # chefe's own generated env + manifests
 .chefe/
 
