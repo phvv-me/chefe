@@ -3,9 +3,10 @@
 [![chefe banner](https://raw.githubusercontent.com/phvv-me/chefe/main/docs/assets/banner.png)](https://phvv.me/chefe)
 
 [![CI](https://github.com/phvv-me/chefe/actions/workflows/ci.yml/badge.svg)](https://github.com/phvv-me/chefe/actions/workflows/ci.yml)
+[![Publish](https://github.com/phvv-me/chefe/actions/workflows/publish.yml/badge.svg)](https://github.com/phvv-me/chefe/actions/workflows/publish.yml)
 [![PyPI](https://img.shields.io/pypi/v/chefe.svg?color=EAB308)](https://pypi.org/project/chefe/)
+[![Python](https://img.shields.io/pypi/pyversions/chefe.svg?color=EAB308)](https://pypi.org/project/chefe/)
 [![Docs](https://img.shields.io/badge/docs-phvv.me%2Fchefe-EAB308)](https://phvv.me/chefe)
-[![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](https://github.com/phvv-me/chefe/blob/main/LICENSE)
 
 </div>
 
@@ -53,8 +54,6 @@ chefe tree                 # what's declared vs installed, per ecosystem
 ```
 
 > **Tip** run `chefe tree` anytime to see declared vs installed across every ecosystem at a glance.
-
-> **Note** full documentation lives at [phvv.me/chefe](https://phvv.me/chefe).
 
 ## Lore
 
