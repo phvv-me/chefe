@@ -1,6 +1,6 @@
 <div class="hero" markdown>
 
-![chefe — one manifest for every package manager](assets/banner.svg){ .hero-banner }
+![chefe — one manifest for every package manager](assets/banner.webp){ .hero-banner }
 
 </div>
 

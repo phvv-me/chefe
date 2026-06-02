@@ -8,7 +8,7 @@ copyright: Apache-2.0 · Pedro Valois
 theme:
   name: material
   logo: assets/logo.svg
-  favicon: assets/logo.svg
+  favicon: assets/logo.png
   font:
     text: Inter
     code: JetBrains Mono
@@ -41,7 +41,7 @@ extra_css:
   - stylesheets/extra.css
 
 nav:
-  - chefe: index.md
+  - Home: index.md
   - Manifest: manifest.md
   - Commands: commands.md
   - Examples: examples.md

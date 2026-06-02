@@ -1,6 +1,6 @@
 <div align="center">
 
-[![chefe banner](https://raw.githubusercontent.com/phvv-me/chefe/main/docs/assets/banner.svg)](https://phvv.me/chefe)
+[![chefe banner](https://raw.githubusercontent.com/phvv-me/chefe/main/docs/assets/banner.webp)](https://phvv.me/chefe)
 
 [![CI](https://github.com/phvv-me/chefe/actions/workflows/ci.yml/badge.svg)](https://github.com/phvv-me/chefe/actions/workflows/ci.yml)
 [![Publish](https://github.com/phvv-me/chefe/actions/workflows/publish.yml/badge.svg)](https://github.com/phvv-me/chefe/actions/workflows/publish.yml)
