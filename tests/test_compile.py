@@ -47,6 +47,7 @@ cupy = ">=13"
 
 [envs.serving]
 no-default = true
+platforms = ["linux-64"]
 
 [envs.serving.pypi.deps]
 vllm = ">=0.6"

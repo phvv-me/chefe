@@ -3,6 +3,7 @@ from __future__ import annotations
 import tomllib
 from enum import StrEnum
 from pathlib import Path
+from typing import cast
 
 from pydantic import ConfigDict, Field, model_serializer, model_validator
 
@@ -126,11 +127,14 @@ class Env(Scope):
 
     on: dict[str, Scope] = {}
     no_default: bool = Field(default=False, alias="no-default")
+    platforms: list[str] = []  # restrict this env's feature to these platforms
 
     def feature(self, indexes: dict[str, str]) -> dict[str, Toml]:
-        """This env as a pixi feature: its registries + any nested platform overlays."""
+        """This env as a pixi feature: its registries, platform restriction, and overlays."""
         body: dict[str, Toml] = {}
         body.update(self.tables(indexes))
+        if self.platforms:
+            body["platforms"] = cast("Toml", self.platforms)
         target: dict[str, Toml] = {}
         for plat, scope in self.on.items():
             if tables := scope.tables(indexes):

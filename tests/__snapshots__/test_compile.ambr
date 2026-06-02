@@ -47,6 +47,9 @@
   [target.linux.dependencies]
   cupy = ">=13"
   
+  [feature.serving]
+  platforms = ["linux-64"]
+  
   [feature.serving.dependencies]
   python = "*"
   
