@@ -126,6 +126,14 @@ def test_global_install_builds_specs(
     assert "python>=3.11" in specs and "ripgrep" in specs
 
 
+def test_x_runs_ephemeral(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """x runs a throwaway command through the pixi exec seam, with no manifest needed."""
+    seen: list[tuple[tuple[str, ...], tuple[str, ...]]] = []
+    monkeypatch.setattr(Pixi, "exec", lambda self, specs, args: bool(seen.append((specs, args))))
+    PackageManager(tmp_path).x("ruff", "check", ".", with_=("ruff",))
+    assert seen == [(("ruff",), ("ruff", "check", "."))]
+
+
 def test_tree_renders_against_installed(
     workspace: Workspace, monkeypatch: pytest.MonkeyPatch
 ) -> None:

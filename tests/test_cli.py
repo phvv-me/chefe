@@ -15,6 +15,7 @@ COMMANDS = [
     (["update"], "update"),
     (["clean"], "clean"),
     (["run", "build", "--", "-x"], "run"),
+    (["x", "ruff", "check", "."], "x"),
     (["shell"], "shell"),
     (["tree"], "tree"),
     (["add", "numpy", "--pypi"], "add"),

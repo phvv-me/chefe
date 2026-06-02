@@ -123,6 +123,23 @@ def test_pixi_global_install_builds_argv(
     ]
 
 
+def test_pixi_exec_builds_argv(
+    fp: FakeProcess, tmp_path: Path, tool_paths: dict[str, str]
+) -> None:
+    """`exec` runs a throwaway command, threading extra packages through as `--spec`."""
+    fp.register([tool_paths["pixi"], fp.any()], stdout="")
+    Pixi(tmp_path).exec(("build",), ("python", "-m", "build"))
+    assert list(fp.calls[-1]) == [
+        tool_paths["pixi"],
+        "exec",
+        "--spec",
+        "build",
+        "python",
+        "-m",
+        "build",
+    ]
+
+
 def test_npm_scope_pins_prefix_when_invoked(
     fp: FakeProcess, tmp_path: Path, tool_paths: dict[str, str]
 ) -> None:

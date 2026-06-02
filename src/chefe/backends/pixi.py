@@ -32,3 +32,8 @@ class Pixi(Tool):
         """Install conda ``specs`` into a shared global pixi env named ``name``."""
         argv = ("global", "install", *self.flags(environment=name), *specs)
         return self.foreground(self.command[argv])
+
+    def exec(self, specs: tuple[str, ...], args: tuple[str, ...]) -> bool:
+        """Run ``args`` in a throwaway env (like uvx), pulling extra ``specs`` as `--spec`."""
+        spec_flags = tuple(flag for spec in specs for flag in ("--spec", spec))
+        return self.foreground(self.command["exec", *spec_flags, *args])

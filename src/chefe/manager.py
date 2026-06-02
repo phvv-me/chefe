@@ -98,6 +98,14 @@ class PackageManager:
         """Run a task inside the env."""
         self.pixi("run", task, *args)
 
+    def x(self, *args: str, with_: tuple[str, ...] = ()) -> None:
+        """Run a command in a throwaway env, like uvx or pipx run; no manifest needed.
+
+        args: the command and its arguments, e.g. `chefe x ruff check .`.
+        with_: extra packages to make available, e.g. `--with build`.
+        """
+        self.pixi.exec(with_, args)
+
     def shell(self, env: str = "default") -> None:
         """Open an activated shell in ``env``."""
         self.pixi("shell", "-e", env)

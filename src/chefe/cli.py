@@ -18,6 +18,7 @@ def build(manager: PackageManager) -> App:
         manager.update,
         manager.clean,
         manager.run,
+        manager.x,
         manager.shell,
         manager.tree,
         manager.add,
