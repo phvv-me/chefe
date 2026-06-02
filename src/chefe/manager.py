@@ -12,7 +12,7 @@ from rich.table import Table
 from . import ECOSYSTEMS, ENV_DIR, MANIFEST, NAME, PIXI_RESOLVED
 from .backends import Cargo, Npm, Pixi
 from .compiled import PackageJson, PixiManifest
-from .manifest import Document, Manifest
+from .manifest import Document, Manifest, Spec
 from .state import Declared
 from .utils import current_platform, satisfied
 
@@ -82,16 +82,53 @@ class PackageManager:
         self.console.print(f"[green]removed[/green] {self.out.name}/")
 
     def global_install(self, name: str = "") -> None:
-        """Install the conda `[deps]` into a shared global pixi env."""
+        """Install every ecosystem's declared deps into one shared global pixi env.
+
+        conda goes through `pixi global`; the runtimes it pulls in (python/node/rust)
+        then install the pypi/npm/cargo deps with that env's own pip/npm/cargo — so a
+        global install reaches parity with `chefe install`, no uv involved.
+        """
         manifest = self.load()
         name = name or manifest.workspace.name
-        specs = [
-            pkg if dep.version in (None, "*") else f"{pkg}{dep.version}"
-            for pkg, dep in manifest.deps.items()
-        ]
-        self.pixi.global_install(name, specs)
+
+        def spec(pkg: str, dep: Spec) -> str:
+            return pkg if dep.version in (None, "*") else f"{pkg}{dep.version}"
+
+        conda = dict(manifest.deps)
+        for runtime, deps in (
+            ("python", manifest.pypi.deps),
+            ("nodejs", manifest.npm.deps),
+            ("rust", manifest.cargo.deps),
+        ):
+            if deps:
+                conda.setdefault(runtime, Spec())
+        self.pixi.global_install(name, [spec(pkg, dep) for pkg, dep in conda.items()])
+
+        prefix = self.pixi.global_prefix(name)
+        if manifest.pypi.deps:
+            self.pixi.global_pip(prefix, [spec(p, d) for p, d in manifest.pypi.deps.items()])
+        if manifest.npm.deps:
+            self.pixi.global_npm(
+                prefix,
+                [
+                    p if d.version in (None, "*") else f"{p}@{d.version}"
+                    for p, d in manifest.npm.deps.items()
+                ],
+            )
+        if manifest.cargo.deps:
+            self.pixi.global_cargo(prefix, list(manifest.cargo.deps))
+
+        total = sum(
+            len(group)
+            for group in (
+                manifest.deps,
+                manifest.pypi.deps,
+                manifest.npm.deps,
+                manifest.cargo.deps,
+            )
+        )
         self.console.print(
-            f"[green]installed[/green] {len(specs)} deps into [bold]{escape(name)}[/bold]"
+            f"[green]installed[/green] {total} deps into [bold]{escape(name)}[/bold]"
         )
 
     def run(self, task: str, *args: Annotated[str, Parameter(allow_leading_hyphen=True)]) -> None:

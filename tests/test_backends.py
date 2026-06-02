@@ -3,9 +3,12 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+from plumbum.commands.processes import CommandNotFound
 from pytest_subprocess import FakeProcess
 
 from chefe.backends import Cargo, Npm, Pixi, Tool
+from chefe.manager import PackageManager
 from chefe.utils import current_platform
 
 
@@ -181,3 +184,42 @@ def test_cargo_sync_installs_and_uninstalls(
     assert any("install" in c and "fresh" in c and "--version" in c for c in calls)
     assert any("install" in c and "wild" in c and "--version" not in c for c in calls)  # `*` spec
     assert not any("install" in c and "kept" in c for c in calls)  # already present, skipped
+
+
+def test_pixi_command_falls_back_to_home(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """When pixi is off PATH (a non-login remote shell), the backend finds it in PIXI_HOME."""
+
+    class FakeLocal:
+        def __getitem__(self, key: str) -> str:
+            if key == "pixi":
+                raise CommandNotFound("pixi", [])
+            return key
+
+    monkeypatch.setattr("chefe.backends.pixi.local", FakeLocal())
+    monkeypatch.setenv("PIXI_HOME", str(tmp_path))
+    assert Pixi(tmp_path).command == str(tmp_path / "bin" / "pixi")
+
+
+def test_global_install_spans_all_ecosystems(
+    fp: FakeProcess, tmp_path: Path, tool_paths: dict[str, str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A global install reaches every ecosystem: conda via pixi, then env pip/npm/cargo."""
+    monkeypatch.setenv("PIXI_HOME", str(tmp_path / "pixi"))
+    (tmp_path / "chefe.toml").write_text(
+        '[workspace]\nname = "demo"\nplatforms = ["linux-64"]\n'
+        '[deps]\nripgrep = "*"\n[pypi.deps]\nruff = ">=0.6"\n'
+        '[npm.deps]\nprettier = ">=3"\n[cargo.deps]\nbat = "*"\n'
+    )
+    prefix = tmp_path / "pixi" / "envs" / "demo"
+    for argv0 in (
+        tool_paths["pixi"],
+        *(str(prefix / "bin" / t) for t in ("python", "npm", "cargo")),
+    ):
+        fp.register([argv0, fp.any()], stdout="")
+    PackageManager(tmp_path).global_install()
+    cmds = [list(c) for c in fp.calls]
+    conda = next(c for c in cmds if c[0] == tool_paths["pixi"])
+    assert {"python", "nodejs", "rust", "ripgrep"} <= set(conda)
+    assert [str(prefix / "bin" / "python"), "-m", "pip", "install", "ruff>=0.6"] in cmds
+    assert [str(prefix / "bin" / "npm"), "install", "-g", "prettier@>=3"] in cmds
+    assert [str(prefix / "bin" / "cargo"), "install", "--root", str(prefix), "bat"] in cmds
