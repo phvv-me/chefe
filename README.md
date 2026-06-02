@@ -7,7 +7,6 @@
 [![PyPI](https://img.shields.io/pypi/v/chefe)](https://pypi.org/project/chefe/)
 [![Python](https://img.shields.io/pypi/pyversions/chefe)](https://pypi.org/project/chefe/)
 [![Docs](https://img.shields.io/badge/docs-phvv.me%2Fchefe-EAB308)](https://phvv.me/chefe)
-[🇧🇷](https://phvv.me/chefe/pt-BR/) [🇲🇽](https://phvv.me/chefe/es/) [🇯🇵](https://phvv.me/chefe/ja/) [🇨🇳](https://phvv.me/chefe/zh/)
 
 </div>
 
