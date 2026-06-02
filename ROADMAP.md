@@ -25,8 +25,9 @@ Make chefe complete and trustworthy across every ecosystem it advertises.
   `pixi run gem` into the env prefix. Today gem is in the schema and CLI but never installs, so
   this closes the gap between the docs and reality.
 - [ ] **Swappable package-manager backends.** Let a project pick the tool that drives an
-  ecosystem. For JavaScript that means choosing npm, pnpm, yarn, or bun while still compiling the
-  same `package.json`. The same idea generalizes to alternative drivers in other ecosystems later.
+  ecosystem. For JavaScript that means choosing npm, pnpm, yarn, bun, or aube while still
+  compiling the same `package.json`. The same idea generalizes to alternative drivers in other
+  ecosystems later.
 - [ ] **Lockfiles and reproducibility.** Surface `pixi.lock` and the npm lockfile under
   `.chefe/`, decide what belongs in version control, and guarantee an install reproduces from a
   lock.
