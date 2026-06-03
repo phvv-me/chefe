@@ -27,10 +27,10 @@ Conda, PyPI, npm, cargo. Projetos reais precisam de vários ao mesmo tempo, espa
 ## Instalação
 
 ```sh
-curl -fsSL https://phvv.me/chefe/install.sh | sh
+pip install chefe      # or: uv tool install chefe
 ```
 
-Ele precisa apenas do [pixi](https://pixi.sh), o motor para o qual o chefe compila, que também fornece o Python com o qual o chefe é instalado. Prefere o pacote puro? `pip install chefe`.
+o chefe instala o [pixi](https://pixi.sh), o motor para o qual ele compila, na primeira execução, então um único `pip install` é tudo de que você precisa.
 
 ```toml title="chefe.toml"
 [workspace]

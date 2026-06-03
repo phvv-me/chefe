@@ -60,6 +60,54 @@ prettier = ">=3"
     `python` (or others) in `[deps]` and chefe leaves it alone. This holds per environment too,
     so a `no-default` env that uses `[pypi.deps]` still gets its own `python`.
 
+## Choosing the npm driver
+
+The npm ecosystem is the npm registry, and `manager` under `[npm]` names the binary that
+installs it. The compiled `package.json` is the same whichever one a project picks, and chefe
+runs the named tool inside the generated env, so any package manager that installs into its
+working directory works, including ones chefe has never heard of.
+
+```toml
+[npm]
+manager = "pnpm"   # npm by default; pnpm, bun, aube, yarn, or any other binary
+
+[npm.deps]
+svelte = ">=5"
+```
+
+npm is the default, so an existing `[npm.deps]` table keeps installing with npm. Naming a
+different tool changes only the binary chefe calls, never the deps, the registry, or the file.
+
+!!! note "The driver must be on PATH"
+    chefe ensures `nodejs` for the npm ecosystem; the manager binary itself is yours to provide.
+    pnpm is on conda-forge, so adding it to `[deps]` keeps an install reproducible, while tools
+    like bun or aube ship outside conda and are installed once on the machine.
+
+## JavaScript applications
+
+By default `[npm.deps]` installs as tooling under `.chefe/`, beside the conda env. An application
+sets `app = true`, and chefe installs at the project root and writes a full `package.json` there,
+so Vite, SvelteKit, and the rest resolve `node_modules` the usual way.
+
+```toml
+[npm]
+manager = "pnpm"
+app = true
+
+[npm.deps]
+svelte = ">=5"
+vite = ">=8"
+
+[npm.package]
+type = "module"
+pnpm = { onlyBuiltDependencies = ["esbuild", "workerd"] }
+```
+
+`[npm.package]` is merged into `package.json` verbatim, so any field a tool expects rides through,
+from `type` and `engines` to a package manager's own settings such as pnpm's
+`onlyBuiltDependencies`. chefe writes the file, so `chefe.toml` stays the one thing you edit and a
+generated `package.json` is a build artifact you can gitignore.
+
 ## System requirements
 
 The conda virtual-package floor used for cross-platform solving, not a module-load.

@@ -16,11 +16,11 @@
 ## Installation
 
 ```sh
-curl -fsSL https://phvv.me/chefe/install.sh | sh
+pip install chefe      # or: uv tool install chefe
 ```
 
-This installs [pixi](https://pixi.sh) (the engine chefe compiles to) and chefe itself.
-Prefer the raw package? Use `pip install chefe` or `uv tool install chefe`.
+chefe installs [pixi](https://pixi.sh), the engine it compiles to, on first run, so a single
+`pip install` is all you need.
 
 ## What it is
 

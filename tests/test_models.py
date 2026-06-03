@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import tomllib
 
 import tomlkit
@@ -7,7 +8,7 @@ from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
 
 from chefe.compiled import PackageJson, PixiManifest
-from chefe.manifest import Document, Manifest, Registry, Runtime, Scope, Spec
+from chefe.manifest import Document, Manifest, Npm, Runtime, Scope, Spec
 from chefe.utils import satisfied
 
 from .strategies import ECOSYSTEMS, dep_maps, manifests, specs
@@ -126,12 +127,26 @@ def test_satisfied_tolerates_unparseable_spec() -> None:
     assert satisfied(">=1.0", "not-a-version")
 
 
+def test_npm_manager_is_a_free_name_defaulting_to_npm() -> None:
+    """`[npm] manager` is any binary name, defaults to npm, and never changes the package.json."""
+    npm = {"deps": {"svelte": ">=5"}}
+    base = {"workspace": {"name": "w", "platforms": ["linux-64"]}, "npm": npm}
+    default = Manifest.model_validate(base)
+    picked = Manifest.model_validate({**base, "npm": {"manager": "deno", **npm}})
+    assert default.npm.manager == "npm"  # the default driver
+    assert picked.npm.manager == "deno"  # any name, even one chefe never coded
+    # the npm registry is the same whichever driver installs it, so the compiled file matches
+    default_pkg, picked_pkg = PackageJson.from_manifest(default), PackageJson.from_manifest(picked)
+    assert default_pkg is not None and picked_pkg is not None
+    assert default_pkg.to_json() == picked_pkg.to_json()
+
+
 @given(dep_maps())
 def test_package_json_mirrors_npm_deps(deps: dict[str, Spec]) -> None:
     """package.json exists iff `[npm.deps]` is non-empty, and mirrors every package version."""
     manifest = Manifest.model_validate(
         {"workspace": {"name": "w", "platforms": ["linux-64"]}}
-    ).model_copy(update={"npm": Registry(deps=deps)})
+    ).model_copy(update={"npm": Npm(deps=deps)})
     package = PackageJson.from_manifest(manifest)
     if not deps:
         assert package is None
@@ -139,3 +154,24 @@ def test_package_json_mirrors_npm_deps(deps: dict[str, Spec]) -> None:
     assert package is not None
     for name, spec in manifest.npm.deps.items():
         assert package.dependencies[name] == (spec.version or "*")
+
+
+def test_app_package_json_takes_workspace_name_and_passthrough() -> None:
+    """An app package.json uses the workspace name and merges `[npm.package]` verbatim."""
+    manifest = Manifest.model_validate(
+        {
+            "workspace": {"name": "site", "platforms": ["linux-64"]},
+            "npm": {
+                "app": True,
+                "deps": {"svelte": ">=5"},
+                "package": {"type": "module", "pnpm": {"onlyBuiltDependencies": ["esbuild"]}},
+            },
+        }
+    )
+    package = PackageJson.from_manifest(manifest)
+    assert package is not None
+    data = json.loads(package.to_json())
+    assert data["name"] == "site"  # the workspace name, no `-npm` suffix
+    assert data["type"] == "module"  # framework fields ride through untouched
+    assert data["pnpm"]["onlyBuiltDependencies"] == ["esbuild"]
+    assert data["dependencies"] == {"svelte": ">=5"}

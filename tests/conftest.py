@@ -9,7 +9,7 @@ from faker import Faker
 from plumbum import local
 from pytest_mock import MockerFixture
 
-from chefe.backends import Cargo, Npm, Pixi, Tool
+from chefe.backends import Cargo, Node, Pixi, Tool
 from chefe.manager import PackageManager
 from chefe.manifest import Document
 
@@ -62,7 +62,7 @@ def tool_paths(tmp_path_factory: pytest.TempPathFactory) -> Iterator[dict[str, s
     """
     bindir = tmp_path_factory.mktemp("bin")
     paths: dict[str, str] = {}
-    for tool in ("pixi", "npm", "cargo"):
+    for tool in ("pixi", "npm", "cargo", "pnpm", "bun", "aube"):
         executable = bindir / tool
         executable.write_text("#!/bin/sh\n")
         executable.chmod(0o755)
@@ -85,7 +85,9 @@ def recording_backends(mocker: MockerFixture) -> list[tuple[str, ...]]:
         calls.append((type(self).__name__, verb, *Tool.flags(**flags), *args))
         return True
 
-    for backend in (Pixi, Npm, Cargo):
+    # `Node` is the base for every JS driver (npm/pnpm/bun/aube), so patching it once records
+    # whichever one a manifest selects, under its own class name.
+    for backend in (Pixi, Node, Cargo):
         mocker.patch.object(backend, "__call__", side_effect=record, autospec=True)
         mocker.patch.object(backend, "installed", side_effect=lambda self, env: {}, autospec=True)
     mocker.patch.object(

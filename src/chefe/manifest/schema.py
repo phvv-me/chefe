@@ -70,6 +70,23 @@ class PyPI(Registry):
         return {key: value for key, value in (self.model_extra or {}).items()}
 
 
+class Npm(Registry):
+    """The npm ecosystem (the npm registry): the deps, the `manager` that installs them, and how.
+
+    `manager` is just the binary chefe runs (npm by default, or pnpm/bun/aube/…), invoked inside
+    its install dir; any package manager that installs into its working directory works with no
+    code change here. `app` makes this a JavaScript application: chefe installs at the project
+    root (where Vite and friends resolve `node_modules`) and writes a full `package.json` there,
+    instead of the tooling install under `.chefe/`. `package` is merged verbatim into that file,
+    so framework fields ride through (`type`, `engines`, pnpm's `onlyBuiltDependencies`, …)
+    without chefe knowing any of them.
+    """
+
+    manager: str = "npm"
+    app: bool = False
+    package: dict[str, Toml] = {}
+
+
 class Runtime(StrEnum):
     """The conda-forge language runtime each non-conda ecosystem needs to install and run.
 
@@ -90,7 +107,7 @@ class Scope(Model):
     deps: dict[str, Spec] = {}
     pypi: PyPI = PyPI()
     cargo: Registry = Registry()
-    npm: Registry = Registry()
+    npm: Npm = Npm()
     gem: Registry = Registry()
 
     def registries(self) -> dict[str, Registry]:

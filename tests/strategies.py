@@ -6,7 +6,18 @@ from pathlib import Path
 
 from hypothesis import strategies as st
 
-from chefe.manifest import Document, Env, Header, Manifest, PyPI, Registry, Runtime, Scope, Spec
+from chefe.manifest import (
+    Document,
+    Env,
+    Header,
+    Manifest,
+    Npm,
+    PyPI,
+    Registry,
+    Runtime,
+    Scope,
+    Spec,
+)
 
 # Leaf alphabets come from stdlib `string`; the structure is derived from the pydantic
 # models themselves via `st.builds`, so adding a field to a model widens these strategies
@@ -22,6 +33,9 @@ VERSIONS = st.sampled_from(["*", ">=1.0", "==2.3.4", ">=3.11,<4", "~=1.4", "1.2.
 
 # Pixi platform selectors the manifest may overlay on.
 PLATFORMS = st.sampled_from(["osx-arm64", "osx-64", "linux-64", "linux-aarch64", "win-64"])
+
+# JS managers `[npm] manager` may name; `deno` stands in for any future tool chefe never coded.
+NODE_MANAGERS = st.sampled_from(["npm", "pnpm", "bun", "aube", "yarn", "deno"])
 
 # The non-conda ecosystems that own a `[<eco>.deps]` table, read from the runtime enum.
 ECOSYSTEMS = tuple(Runtime.__members__)  # ("pypi", "npm", "cargo", "gem")
@@ -94,7 +108,7 @@ def scopes() -> st.SearchStrategy[Scope]:
         deps=dep_maps(),
         pypi=st.builds(PyPI, deps=dep_maps()),
         cargo=st.builds(Registry, deps=dep_maps()),
-        npm=st.builds(Registry, deps=dep_maps()),
+        npm=st.builds(Npm, deps=dep_maps(), manager=NODE_MANAGERS),
         gem=st.builds(Registry, deps=dep_maps()),
     )
 
@@ -115,7 +129,7 @@ def envs() -> st.SearchStrategy[Env]:
         deps=dep_maps(),
         pypi=st.builds(PyPI, deps=dep_maps()),
         cargo=st.builds(Registry, deps=dep_maps()),
-        npm=st.builds(Registry, deps=dep_maps()),
+        npm=st.builds(Npm, deps=dep_maps(), manager=NODE_MANAGERS),
         gem=st.builds(Registry, deps=dep_maps()),
         on=st.dictionaries(PLATFORMS, scopes(), max_size=2),
         no_default=st.booleans(),
@@ -134,7 +148,7 @@ def manifests() -> st.SearchStrategy[Manifest]:
         deps=dep_maps(),
         pypi=st.builds(PyPI, deps=dep_maps()),
         cargo=st.builds(Registry, deps=dep_maps()),
-        npm=st.builds(Registry, deps=dep_maps()),
+        npm=st.builds(Npm, deps=dep_maps(), manager=NODE_MANAGERS),
         gem=st.builds(Registry, deps=dep_maps()),
         on=st.dictionaries(PLATFORMS, scopes(), max_size=2),
         envs=st.dictionaries(PACKAGES, envs(), max_size=2),

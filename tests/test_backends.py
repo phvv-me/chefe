@@ -7,7 +7,7 @@ import pytest
 from plumbum.commands.processes import CommandNotFound
 from pytest_subprocess import FakeProcess
 
-from chefe.backends import Cargo, Npm, Pixi, Tool
+from chefe.backends import Cargo, Node, Pixi, Tool
 from chefe.manager import PackageManager
 from chefe.utils import current_platform
 
@@ -39,19 +39,19 @@ def test_flags_translate_kwargs_to_cli_args() -> None:
 
 
 def test_tool_default_scope_is_empty() -> None:
-    """The base backend pins nothing; subclasses (pixi/npm) override to add scope args."""
+    """The base backend pins nothing; pixi overrides scope to add `--manifest-path`."""
     assert Tool().scope() == ()
 
 
-def test_npm_available_requires_package_json(tmp_path: Path) -> None:
-    """npm refuses to run until a `package.json` exists in its prefix."""
-    npm = Npm(tmp_path)
-    assert npm.available() is False
+def test_node_available_requires_package_json(tmp_path: Path) -> None:
+    """The JS backend refuses to run until a `package.json` exists in the env dir."""
+    node = Node(tmp_path)
+    assert node.available() is False
     (tmp_path / "package.json").write_text("{}")
-    assert npm.available() is True
+    assert node.available() is True
 
 
-def test_npm_installed_reads_node_modules(tmp_path: Path) -> None:
+def test_node_installed_reads_node_modules(tmp_path: Path) -> None:
     """`installed` discovers both plain and scoped packages under node_modules."""
     for rel, name, version in (
         ("node_modules/prettier", "prettier", "3.2.0"),
@@ -60,7 +60,7 @@ def test_npm_installed_reads_node_modules(tmp_path: Path) -> None:
         directory = tmp_path / rel
         directory.mkdir(parents=True)
         (directory / "package.json").write_text(json.dumps({"name": name, "version": version}))
-    found = Npm(tmp_path).installed("default")
+    found = Node(tmp_path).installed("default")
     assert found["prettier"].version == "3.2.0"
     assert found["@scope/pkg"].kind == "npm"
 
@@ -143,21 +143,20 @@ def test_pixi_exec_builds_argv(
     ]
 
 
-def test_npm_scope_pins_prefix_when_invoked(
-    fp: FakeProcess, tmp_path: Path, tool_paths: dict[str, str]
+@pytest.mark.parametrize("manager", ["npm", "pnpm", "bun", "aube"])
+def test_node_runs_the_named_manager_in_the_env_dir(
+    manager: str, fp: FakeProcess, tmp_path: Path, tool_paths: dict[str, str]
 ) -> None:
-    """An available npm runs with `--prefix <out> --no-audit --no-fund` after the verb."""
+    """The JS backend invokes whatever manager it is named, targeting the env dir by cwd, no flag.
+
+    The same call shape works for every tool, so a new package manager needs no code, only a name.
+    """
     (tmp_path / "package.json").write_text("{}")
-    fp.register([tool_paths["npm"], fp.any()], stdout="")
-    Npm(tmp_path)("install")
-    assert list(fp.calls[-1]) == [
-        tool_paths["npm"],
-        "install",
-        "--prefix",
-        str(tmp_path),
-        "--no-audit",
-        "--no-fund",
-    ]
+    node = Node(tmp_path, manager)
+    assert node.name == manager and node.cwd() == tmp_path
+    fp.register([tool_paths[manager], fp.any()], stdout="")
+    node("install")
+    assert list(fp.calls[-1]) == [tool_paths[manager], "install"]
 
 
 def test_cargo_sync_installs_and_uninstalls(
@@ -186,18 +185,45 @@ def test_cargo_sync_installs_and_uninstalls(
     assert not any("install" in c and "kept" in c for c in calls)  # already present, skipped
 
 
+class FakeLocalMissingPixi:
+    """A plumbum `local` stand-in where `pixi` is off PATH but any other name resolves."""
+
+    def __getitem__(self, key: str) -> str:
+        if key == "pixi":
+            raise CommandNotFound("pixi", [])
+        return key
+
+
 def test_pixi_command_falls_back_to_home(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    """When pixi is off PATH (a non-login remote shell), the backend finds it in PIXI_HOME."""
-
-    class FakeLocal:
-        def __getitem__(self, key: str) -> str:
-            if key == "pixi":
-                raise CommandNotFound("pixi", [])
-            return key
-
-    monkeypatch.setattr("chefe.backends.pixi.local", FakeLocal())
+    """Off PATH but present in PIXI_HOME (a non-login remote shell): use it, never bootstrap."""
+    monkeypatch.setattr("chefe.backends.pixi.local", FakeLocalMissingPixi())
     monkeypatch.setenv("PIXI_HOME", str(tmp_path))
+    binary = tmp_path / "bin" / "pixi"
+    binary.parent.mkdir(parents=True)
+    binary.touch()
+    installs: list[bool] = []
+    monkeypatch.setattr(Pixi, "bootstrap", lambda self: installs.append(True))
+    assert Pixi(tmp_path).command == str(binary)
+    assert installs == []  # present already, so no engine install
+
+
+def test_pixi_command_bootstraps_when_absent(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Missing on PATH and in PIXI_HOME: the backend installs the engine, then uses it."""
+    monkeypatch.setattr("chefe.backends.pixi.local", FakeLocalMissingPixi())
+    monkeypatch.setenv("PIXI_HOME", str(tmp_path))
+    installs: list[bool] = []
+    monkeypatch.setattr(Pixi, "bootstrap", lambda self: installs.append(True))
     assert Pixi(tmp_path).command == str(tmp_path / "bin" / "pixi")
+    assert installs == [True]  # bootstrapped once, lazily
+
+
+def test_pixi_bootstrap_runs_the_official_installer(fp: FakeProcess, tmp_path: Path) -> None:
+    """bootstrap shells out to pixi's official install script."""
+    fp.register([fp.any()], stdout="")
+    Pixi(tmp_path).bootstrap()
+    assert any("pixi.sh/install.sh" in str(arg) for call in fp.calls for arg in call)
 
 
 def test_global_install_spans_all_ecosystems(

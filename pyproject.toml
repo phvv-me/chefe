@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "chefe"
-version = "0.0.8"
+version = "0.0.9"
 description = "One manifest for every package manager | conda, PyPI, npm, cargo & more, behind a single file."
 readme = "README.md"
 requires-python = ">=3.11"

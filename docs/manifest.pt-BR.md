@@ -60,6 +60,55 @@ prettier = ">=3"
     `python` (ou outros) fixado em `[deps]` e o chefe o deixa em paz. Isso também vale por ambiente,
     então um ambiente `no-default` que usa `[pypi.deps]` ainda recebe seu próprio `python`.
 
+## Escolher o gerenciador do npm
+
+O ecossistema npm é o registro do npm, e `manager` dentro de `[npm]` nomeia o binário que o
+instala. O `package.json` compilado é o mesmo qualquer que seja a escolha do projeto, e o chefe
+executa a ferramenta nomeada dentro do ambiente gerado, então funciona qualquer gerenciador de
+pacotes que instale no seu diretório de trabalho, inclusive um que o chefe nunca tenha conhecido.
+
+```toml
+[npm]
+manager = "pnpm"   # npm por padrão; pnpm, bun, aube, yarn ou qualquer outro binário
+
+[npm.deps]
+svelte = ">=5"
+```
+
+npm é o padrão, então uma tabela `[npm.deps]` existente continua instalando com npm. Nomear outra
+ferramenta muda só o binário que o chefe executa, nunca as dependências, o registro ou o arquivo.
+
+!!! note "O gerenciador precisa estar no PATH"
+    O chefe garante o `nodejs` para o ecossistema npm; o binário do gerenciador é você quem fornece.
+    O pnpm está no conda-forge, então adicioná-lo a `[deps]` mantém a instalação reproduzível,
+    enquanto ferramentas como bun ou aube vêm fora do conda e são instaladas uma vez na máquina.
+
+## Aplicações JavaScript
+
+Por padrão `[npm.deps]` é instalado como ferramentas dentro de `.chefe/`, ao lado do ambiente conda.
+Uma aplicação define `app = true`, e o chefe instala na raiz do projeto e escreve ali um
+`package.json` completo, para que Vite, SvelteKit e os demais resolvam `node_modules` do jeito usual.
+
+```toml
+[npm]
+manager = "pnpm"
+app = true
+
+[npm.deps]
+svelte = ">=5"
+vite = ">=8"
+
+[npm.package]
+type = "module"
+pnpm = { onlyBuiltDependencies = ["esbuild", "workerd"] }
+```
+
+`[npm.package]` é mesclado no `package.json` tal como está, então qualquer campo que uma ferramenta
+espere passa sem alterações, de `type` e `engines` até os ajustes próprios de um gerenciador como o
+`onlyBuiltDependencies` do pnpm. O chefe escreve o arquivo, então o `chefe.toml` continua sendo a
+única coisa que você edita e um `package.json` gerado é um artefato de build que pode ir para o
+gitignore.
+
 ## Requisitos de sistema
 
 O piso de pacotes virtuais do conda usado para a resolução multiplataforma, não um carregamento de módulo.

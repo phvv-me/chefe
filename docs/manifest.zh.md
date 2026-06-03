@@ -60,6 +60,51 @@ prettier = ">=3"
     钉死版本的 `python`（或其他），chefe 会原样保留它。这在每个环境里同样成立，
     所以一个使用了 `[pypi.deps]` 的 `no-default` 环境照样会拿到它自己的 `python`。
 
+## 选择 npm 驱动
+
+npm 生态就是 npm 注册表，`[npm]` 中的 `manager` 指定安装它的二进制。无论项目选择哪一个，编译出的
+`package.json` 都相同；chefe 会在生成的环境目录内运行所指定的工具，因此任何会安装到其工作目录的
+包管理器都能工作，哪怕是 chefe 从未听说过的。
+
+```toml
+[npm]
+manager = "pnpm"   # 默认 npm；也可是 pnpm、bun、aube、yarn 或任意其他二进制
+
+[npm.deps]
+svelte = ">=5"
+```
+
+默认是 npm，所以已有的 `[npm.deps]` 表会继续用 npm 安装。指定别的工具只改变 chefe 运行的二进制，
+依赖、注册表和文件都不变。
+
+!!! note "驱动必须在 PATH 上"
+    chefe 为 npm 生态保证 `nodejs`，而管理器本体由你提供。pnpm 在 conda-forge 上，把它加到 `[deps]`
+    能让安装可复现；而 bun、aube 等工具在 conda 之外发布，需在机器上安装一次。
+
+## JavaScript 应用
+
+默认情况下 `[npm.deps]` 会作为工具安装在 `.chefe/` 内，与 conda 环境为邻。应用设置 `app = true`，
+chefe 便会安装到项目根目录，并在那里写出完整的 `package.json`，让 Vite、SvelteKit 等照常解析
+`node_modules`。
+
+```toml
+[npm]
+manager = "pnpm"
+app = true
+
+[npm.deps]
+svelte = ">=5"
+vite = ">=8"
+
+[npm.package]
+type = "module"
+pnpm = { onlyBuiltDependencies = ["esbuild", "workerd"] }
+```
+
+`[npm.package]` 会原样合并进 `package.json`，因此工具期望的任何字段都会原封不动地通过，从 `type`、
+`engines` 到 pnpm 的 `onlyBuiltDependencies` 这类包管理器自有设置。文件由 chefe 写出，所以你只需
+编辑 `chefe.toml`，而生成的 `package.json` 是可加入 gitignore 的构建产物。
+
 ## 系统要求
 
 用于跨平台求解的 conda 虚拟包下限，而非模块加载（module-load）。

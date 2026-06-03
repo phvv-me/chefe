@@ -27,10 +27,10 @@ Conda、PyPI、npm、cargo。実際のプロジェクトでは複数を同時に
 ## インストール
 
 ```sh
-curl -fsSL https://phvv.me/chefe/install.sh | sh
+pip install chefe      # or: uv tool install chefe
 ```
 
-必要なのは [pixi](https://pixi.sh) だけです。pixi は chefe がコンパイル先とするエンジンであり、chefe をインストールする Python も提供します。生のパッケージのほうが好みですか？ `pip install chefe`。
+chefe は初回実行時に、コンパイル先のエンジンである [pixi](https://pixi.sh) をインストールします。そのため `pip install` 一回だけで十分です。
 
 ```toml title="chefe.toml"
 [workspace]

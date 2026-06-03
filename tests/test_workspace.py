@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 from faker import Faker
 
-from chefe.backends import Cargo, Npm, Pixi
+from chefe.backends import Cargo, Node, Pixi
 from chefe.manager import PackageManager
 from chefe.state import Installed
 
@@ -25,17 +25,26 @@ def test_init_scaffolds_then_is_idempotent(tmp_path: Path, faker_instance: Faker
 
 
 def test_sync_writes_pixi_and_package_json(workspace: Workspace) -> None:
-    """sync compiles pixi.toml always, and package.json only when npm deps exist."""
+    """sync compiles pixi.toml always, and a tooling package.json under .chefe for npm deps."""
     manager = workspace('[deps]\npython = ">=3.11"\n[npm.deps]\nleftpad = "*"\n')
     manager.sync()
     assert manager.pixi.manifest.exists()
-    assert manager.npm.manifest.exists()
+    assert (manager.out / "package.json").exists()
 
 
 def test_sync_skips_package_json_without_npm(workspace: Workspace) -> None:
     manager = workspace('[deps]\npython = ">=3.11"\n')
     manager.sync()
-    assert not manager.npm.manifest.exists()
+    assert not (manager.out / "package.json").exists()
+
+
+def test_app_mode_syncs_package_json_at_the_project_root(workspace: Workspace) -> None:
+    """`[npm] app` writes package.json and resolves the driver at the root, not under .chefe."""
+    manager = workspace('[npm]\napp = true\n[npm.deps]\nsvelte = ">=5"\n')
+    manager.sync()
+    assert (manager.root / "package.json").exists()  # where Vite resolves node_modules
+    assert not (manager.out / "package.json").exists()  # not the tooling location
+    assert manager.node(manager.load()).out == manager.root
 
 
 def test_clean_removes_generated_env(workspace: Workspace) -> None:
@@ -97,7 +106,16 @@ def test_install_drives_every_backend(
     manager = workspace('[deps]\npython = "*"\n[cargo.deps]\nrg = "*"\n')
     manager.install()
     verbs = {(c[0], c[1]) for c in recording_backends}
-    assert {("Pixi", "install"), ("Npm", "install"), ("Cargo", "sync")} <= verbs
+    assert {("Pixi", "install"), ("Node", "install"), ("Cargo", "sync")} <= verbs
+
+
+def test_node_backend_is_generic_over_the_manager_name(workspace: Workspace) -> None:
+    """`[npm] manager` is any binary name; the backend runs it in the env dir, no code per tool."""
+    for name in ("npm", "pnpm", "bun", "aube", "deno"):
+        manager = workspace(f'[npm]\nmanager = "{name}"\n[npm.deps]\nx = "*"\n')
+        node = manager.node(manager.load())
+        assert node.name == name
+        assert node.cwd() == manager.out
 
 
 def test_update_and_upgrade_and_shell_and_run(
@@ -146,7 +164,7 @@ def test_tree_renders_against_installed(
             "numpy": Installed(version="2.0.0", kind="conda", explicit=False),
         },
     )
-    monkeypatch.setattr(Npm, "installed", lambda self, env: {})
+    monkeypatch.setattr(Node, "installed", lambda self, env: {})
     monkeypatch.setattr(Cargo, "installed", lambda self, env: {})
     manager = workspace('[deps]\npython = ">=3.11"\nripgrep = "*"\n')
     manager.tree("default")  # exercises ok / drift / missing buckets and the transitive count

@@ -1,5 +1,6 @@
 import json
 import os
+import sys
 from functools import cached_property
 from pathlib import Path
 
@@ -9,6 +10,10 @@ from plumbum.commands.processes import CommandNotFound
 
 from ..state import Installed
 from .tool import Tool
+
+# chefe's engine. `pip install chefe` brings no binary, so chefe installs it on first use the
+# way the old installer did, with the official script that drops `pixi` into `PIXI_HOME/bin`.
+PIXI_INSTALLER = "curl -fsSL https://pixi.sh/install.sh | sh"
 
 
 class Pixi(Tool):
@@ -25,14 +30,26 @@ class Pixi(Tool):
         """pixi's home, where its `bin/` and global `envs/` live."""
         return Path(os.environ.get("PIXI_HOME") or Path.home() / ".pixi")
 
+    def bootstrap(self) -> None:
+        """Install pixi (chefe's engine) when it is missing, so `pip install chefe` is enough.
+
+        Runs pixi's official installer, which places the binary in `PIXI_HOME/bin`; this is the
+        one-time download the old `install.sh` did, now triggered lazily from chefe itself.
+        """
+        sys.stderr.write("chefe: installing pixi engine…\n")
+        self.foreground(local["sh"]["-c", PIXI_INSTALLER])
+
     @cached_property
     def command(self) -> BaseCommand:
-        """The pixi executable; fall back to pixi's default dir when a non-login
-        remote shell has dropped `~/.pixi/bin` from PATH."""
+        """The pixi executable. Prefer it on PATH, fall back to `PIXI_HOME/bin` when a non-login
+        remote shell has dropped it, and bootstrap the engine when it is absent everywhere."""
         try:
             return local["pixi"]
         except CommandNotFound:
-            return local[str(self.home() / "bin" / "pixi")]
+            binary = self.home() / "bin" / "pixi"
+            if not binary.exists():
+                self.bootstrap()
+            return local[str(binary)]
 
     def scope(self) -> tuple[str, ...]:
         return ("--manifest-path", str(self.manifest))

@@ -27,10 +27,10 @@ Conda, PyPI, npm, cargo. Real projects need several at once, scattered across `p
 ## Installation
 
 ```sh
-curl -fsSL https://phvv.me/chefe/install.sh | sh
+pip install chefe      # or: uv tool install chefe
 ```
 
-It needs only [pixi](https://pixi.sh), the engine chefe compiles to, which also provides the Python it installs chefe with. Prefer the raw package? `pip install chefe`.
+chefe installs [pixi](https://pixi.sh), the engine it compiles to, on first run, so a single `pip install` is all you need.
 
 ```toml title="chefe.toml"
 [workspace]

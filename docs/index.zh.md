@@ -27,10 +27,10 @@ Conda、PyPI、npm、cargo。真实的项目往往同时需要好几个，零散
 ## 安装
 
 ```sh
-curl -fsSL https://phvv.me/chefe/install.sh | sh
+pip install chefe      # or: uv tool install chefe
 ```
 
-它只需要 [pixi](https://pixi.sh)，也就是 chefe 编译的目标引擎，同时它也提供了用来安装 chefe 的 Python。更想要原始包？`pip install chefe`。
+chefe 会在首次运行时安装它编译的目标引擎 [pixi](https://pixi.sh)，因此只需一次 `pip install` 就够了。
 
 ```toml title="chefe.toml"
 [workspace]

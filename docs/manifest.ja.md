@@ -60,6 +60,55 @@ prettier = ">=3"
     `python`（や他のもの）を宣言すれば、chefe はそれに手を付けません。これは環境ごとにも当てはまるため、
     `[pypi.deps]` を使う `no-default` 環境でも、自身の `python` を得ます。
 
+## npm ドライバの選択
+
+npm エコシステムは npm レジストリであり、`[npm]` の中の `manager` がそれをインストールするバイナリを
+指定します。コンパイルされる `package.json` はプロジェクトがどれを選んでも同じで、chefe は指定された
+ツールを生成された環境ディレクトリ内で実行するため、作業ディレクトリにインストールするパッケージ
+マネージャーであれば、chefe が知らないものでも動作します。
+
+```toml
+[npm]
+manager = "pnpm"   # 既定は npm。pnpm、bun、aube、yarn など任意のバイナリ
+
+[npm.deps]
+svelte = ">=5"
+```
+
+既定は npm なので、既存の `[npm.deps]` テーブルは引き続き npm でインストールされます。別のツールを
+指定しても変わるのは chefe が実行するバイナリだけで、依存関係もレジストリもファイルも変わりません。
+
+!!! note "ドライバは PATH 上にある必要があります"
+    chefe は npm エコシステムのために `nodejs` を保証しますが、マネージャー本体は自分で用意します。
+    pnpm は conda-forge にあるため `[deps]` に加えるとインストールが再現可能になります。一方、bun や
+    aube は conda の外で配布されるため、マシンに一度インストールしておきます。
+
+## JavaScript アプリケーション
+
+既定では `[npm.deps]` は conda 環境の隣、`.chefe/` の中にツールとしてインストールされます。
+アプリケーションは `app = true` を設定し、chefe はプロジェクトのルートにインストールして、そこに
+完全な `package.json` を書き出します。これにより Vite や SvelteKit などが通常どおり `node_modules`
+を解決できます。
+
+```toml
+[npm]
+manager = "pnpm"
+app = true
+
+[npm.deps]
+svelte = ">=5"
+vite = ">=8"
+
+[npm.package]
+type = "module"
+pnpm = { onlyBuiltDependencies = ["esbuild", "workerd"] }
+```
+
+`[npm.package]` はそのまま `package.json` にマージされるため、ツールが期待する任意のフィールドが
+手を加えられずに通ります。`type` や `engines` から、pnpm の `onlyBuiltDependencies` のような
+パッケージマネージャー独自の設定までです。ファイルは chefe が書き出すので、編集するのは `chefe.toml`
+だけで済み、生成された `package.json` は gitignore できるビルド成果物です。
+
 ## システム要件
 
 クロスプラットフォーム解決に使われる conda の仮想パッケージの下限であり、module-load ではありません。

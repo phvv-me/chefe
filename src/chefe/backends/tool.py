@@ -1,4 +1,5 @@
 from functools import cached_property
+from pathlib import Path
 
 from plumbum import TF, local
 from plumbum.commands.base import BaseCommand
@@ -37,6 +38,10 @@ class Tool:
         """Whether the command should run at all (e.g. npm needs a `package.json`)."""
         return True
 
+    def cwd(self) -> Path | None:
+        """Directory to run in, for tools that target a workspace by location, not a flag."""
+        return None
+
     @staticmethod
     def flags(**options: bool | str | None) -> tuple[str, ...]:
         """Turn keyword options into CLI args (`_`→`-`); drop `False`/`None`/`""`.
@@ -61,7 +66,12 @@ class Tool:
         if not self.available():
             return True
         argv = (verb, *self.scope(), *self.flags(**flags), *args)
-        return self.foreground(self.command[argv])
+        command = self.command[argv]
+        directory = self.cwd()
+        if directory is None:
+            return self.foreground(command)
+        with local.cwd(str(directory)):
+            return self.foreground(command)
 
     def installed(self, env: str) -> dict[str, Installed]:
         """Packages currently provisioned for ``env``: name -> :class:`Installed`."""

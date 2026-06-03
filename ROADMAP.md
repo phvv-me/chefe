@@ -24,13 +24,13 @@ Make chefe complete and trustworthy across every ecosystem it advertises.
 - [ ] **Finish the gem backend** so `[gem.deps]` installs the way cargo does, through
   `pixi run gem` into the env prefix. Today gem is in the schema and CLI but never installs, so
   this closes the gap between the docs and reality.
-- [ ] **Swappable package-manager backends.** Let a project pick the tool that drives an
-  ecosystem. For JavaScript that means choosing npm, pnpm, yarn, bun, or aube while still
-  compiling the same `package.json`. The same idea generalizes to alternative drivers in other
-  ecosystems later.
-- [ ] **Lockfiles and reproducibility.** Surface `pixi.lock` and the npm lockfile under
-  `.chefe/`, decide what belongs in version control, and guarantee an install reproduces from a
-  lock.
+- [x] **Swappable JavaScript backends.** `[npm] manager` names any package-manager binary
+  (npm by default, or pnpm, bun, aube, yarn, …) and chefe runs it in the env dir, so a new tool
+  needs no code, only its name. Generalizing the same choice to other ecosystems is still ahead.
+- [ ] **Lockfiles and reproducibility.** An application (`[npm] app`) already gets its manager's
+  lockfile at the project root, committable as is. Still ahead: surface `pixi.lock` and the
+  tooling lockfile under `.chefe/`, decide what belongs in version control, and guarantee an
+  install reproduces from a lock.
 - [ ] **Cross-platform CI.** Test the compile and install paths on Linux, macOS, and Windows, not
   only where they were written.
 - [ ] **Friendlier failures.** Clear messages when a tool, runtime, or index is missing, plus a

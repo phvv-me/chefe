@@ -10,7 +10,7 @@ from rich.markup import escape
 from rich.table import Table
 
 from . import ECOSYSTEMS, ENV_DIR, MANIFEST, NAME, PIXI_RESOLVED
-from .backends import Cargo, Npm, Pixi
+from .backends import Cargo, Node, Pixi
 from .compiled import PackageJson, PixiManifest
 from .manifest import Document, Manifest, Spec
 from .state import Declared
@@ -22,15 +22,25 @@ class PackageManager:
 
     def __init__(self, root: Path = Path()) -> None:
         self.manifest = root / MANIFEST
+        self.root = root
         self.out = root / ENV_DIR
         self.pixi = Pixi(self.out)
-        self.npm = Npm(self.out)
         self.cargo = Cargo(self.out, self.pixi)
         self.console = Console()
 
     def load(self) -> Manifest:
         """The validated manifest."""
         return Manifest.load(self.manifest)
+
+    def node(self, manifest: Manifest) -> Node:
+        """The JS backend for this manifest: the `[npm] manager` binary in its install dir.
+
+        Tooling installs into the generated `.chefe/` env; an application (`[npm] app`) installs
+        at the project root, where Vite resolves `node_modules`. Either way the backend just runs
+        the named binary there, so any package manager works without code here.
+        """
+        directory = self.root if manifest.npm.app else self.out
+        return Node(directory, manifest.npm.manager)
 
     def declared(self, env: str) -> dict[str, Declared]:
         """Every dep declared for ``env`` on this host."""
@@ -57,14 +67,14 @@ class PackageManager:
         self.out.mkdir(exist_ok=True)
         self.pixi.manifest.write_text(PixiManifest.from_manifest(manifest).to_toml())
         if (package := PackageJson.from_manifest(manifest)) is not None:
-            self.npm.manifest.write_text(package.to_json())
+            self.node(manifest).manifest.write_text(package.to_json())
         self.console.print(f"[green]synced[/green] {self.manifest.name} → {self.out.name}/")
 
     def install(self, env: str = "default") -> None:
         """Sync, then make ``env`` match the manifest across every ecosystem."""
         self.sync()
         self.pixi("install", "-e", env)
-        self.npm("install")
+        self.node(self.load())("install")
         crates = {n: d.spec for n, d in self.declared(env).items() if d.source == "cargo"}
         self.cargo.sync(env, crates)
         self.console.print(f"[green]installed[/green] env [bold]{escape(env)}[/bold]")
@@ -73,7 +83,7 @@ class PackageManager:
         """Re-solve to the newest allowed versions across ecosystems."""
         self.sync()
         self.pixi("update", "-e", env)
-        self.npm("update")
+        self.node(self.load())("update")
         self.console.print(f"[green]updated[/green] env [bold]{escape(env)}[/bold]")
 
     def clean(self) -> None:
@@ -217,7 +227,7 @@ class PackageManager:
         declared = self.declared(env)
         provisioned = self.pixi.installed(env)
         by_source: dict[str, dict[str, str]] = {
-            "npm": {name: inst.version for name, inst in self.npm.installed(env).items()},
+            "npm": {n: inst.version for n, inst in self.node(self.load()).installed(env).items()},
             "cargo": {name: inst.version for name, inst in self.cargo.installed(env).items()},
         }
         for name, inst in provisioned.items():

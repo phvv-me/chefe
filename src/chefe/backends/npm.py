@@ -5,21 +5,27 @@ from ..state import Installed
 from .tool import Tool
 
 
-class Npm(Tool):
-    """The npm backend, scoped to a workspace's env dir, owning its `package.json`."""
+class Node(Tool):
+    """The JS backend: it runs whichever package manager a project names, in the env dir.
 
-    name = "npm"
+    npm, pnpm, bun, aube, yarn, and any future tool all read the same `package.json` and write
+    the same `node_modules`, so the only thing chefe needs is the binary to call. Each installs
+    into its working directory by default, so running in `out` targets the env without a per-tool
+    directory flag and a new manager needs no code here, only its name in `[npm] manager`.
+    """
+
     filename = "package.json"
 
-    def __init__(self, out: Path) -> None:
+    def __init__(self, out: Path, manager: str = "npm") -> None:
         self.out = out
+        self.name = manager
         self.manifest = out / self.filename
-
-    def scope(self) -> tuple[str, ...]:
-        return ("--prefix", str(self.out), "--no-audit", "--no-fund")
 
     def available(self) -> bool:
         return self.manifest.exists()
+
+    def cwd(self) -> Path:
+        return self.out
 
     def installed(self, env: str) -> dict[str, Installed]:
         manifests = (
