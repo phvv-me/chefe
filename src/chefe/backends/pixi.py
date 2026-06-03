@@ -1,6 +1,8 @@
 import json
 import os
 import sys
+from collections.abc import Iterator
+from contextlib import contextmanager
 from functools import cached_property
 from pathlib import Path
 
@@ -29,6 +31,19 @@ class Pixi(Tool):
     def home() -> Path:
         """pixi's home, where its `bin/` and global `envs/` live."""
         return Path(os.environ.get("PIXI_HOME") or Path.home() / ".pixi")
+
+    @contextmanager
+    def activated(self, env: str = "default") -> Iterator[None]:
+        """Prepend the provisioned env's `bin/` to PATH for the duration of the block.
+
+        `chefe install` puts a declared manager (pnpm/bun/…) inside this env, not on the user's
+        PATH, so a tool run straight afterward must see the env's `bin/` to be found at all. The
+        env may not exist yet (a dry call before install), in which case PATH is left untouched.
+        """
+        binary = self.manifest.parent / ".pixi" / "envs" / env / "bin"
+        path = local.env["PATH"]
+        with local.env(PATH=f"{binary}{os.pathsep}{path}" if binary.is_dir() else path):
+            yield
 
     def bootstrap(self) -> None:
         """Install pixi (chefe's engine) when it is missing, so `pip install chefe` is enough.

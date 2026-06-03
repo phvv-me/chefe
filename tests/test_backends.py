@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 
 import pytest
+from plumbum import local
 from plumbum.commands.processes import CommandNotFound
 from pytest_subprocess import FakeProcess
 
@@ -224,6 +225,22 @@ def test_pixi_bootstrap_runs_the_official_installer(fp: FakeProcess, tmp_path: P
     fp.register([fp.any()], stdout="")
     Pixi(tmp_path).bootstrap()
     assert any("pixi.sh/install.sh" in str(arg) for call in fp.calls for arg in call)
+
+
+def test_pixi_activated_puts_the_env_bin_on_path(tmp_path: Path) -> None:
+    """`activated` prepends the env's bin when it exists, and leaves PATH alone when it doesn't.
+
+    This is what lets an env-installed manager (pnpm/bun/…) resolve right after `pixi install`.
+    """
+    pixi = Pixi(tmp_path)
+    env_bin = tmp_path / ".pixi" / "envs" / "default" / "bin"
+    env_bin.mkdir(parents=True)
+    with pixi.activated("default"):
+        assert str(env_bin) in local.env["PATH"]
+    missing = Pixi(tmp_path / "empty")  # no provisioned env yet
+    before = local.env["PATH"]
+    with missing.activated("default"):
+        assert local.env["PATH"] == before
 
 
 def test_global_install_spans_all_ecosystems(

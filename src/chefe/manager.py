@@ -74,7 +74,8 @@ class PackageManager:
         """Sync, then make ``env`` match the manifest across every ecosystem."""
         self.sync()
         self.pixi("install", "-e", env)
-        self.node(self.load())("install")
+        with self.pixi.activated(env):
+            self.node(self.load())("install")
         crates = {n: d.spec for n, d in self.declared(env).items() if d.source == "cargo"}
         self.cargo.sync(env, crates)
         self.console.print(f"[green]installed[/green] env [bold]{escape(env)}[/bold]")
@@ -83,7 +84,8 @@ class PackageManager:
         """Re-solve to the newest allowed versions across ecosystems."""
         self.sync()
         self.pixi("update", "-e", env)
-        self.node(self.load())("update")
+        with self.pixi.activated(env):
+            self.node(self.load())("update")
         self.console.print(f"[green]updated[/green] env [bold]{escape(env)}[/bold]")
 
     def clean(self) -> None:
