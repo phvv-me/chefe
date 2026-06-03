@@ -1,10 +1,8 @@
 name: CI
 
 on:
-  push:
-    branches: [main]
   pull_request:
-  workflow_call: # let publish.yml run this exact gate before releasing
+  workflow_call: # release.yml runs this exact gate on main before publishing
 
 jobs:
   test:
