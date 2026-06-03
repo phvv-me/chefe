@@ -5,9 +5,9 @@ from ..manifest import Manifest
 
 
 class PackageJson(FlexModel):
-    """The compiled `package.json` emitted for the npm ecosystem.
+    """The compiled `package.json` emitted for the Node.js toolchain.
 
-    Extra keys ride through from `[npm.package]` (e.g. `type`, `engines`, `pnpm`), so an
+    Extra keys ride through from `[nodejs.package]` (e.g. `type`, `engines`, `pnpm`), so an
     application controls its own manifest fields without chefe hardcoding any framework.
     """
 
@@ -21,20 +21,17 @@ class PackageJson(FlexModel):
 
     @classmethod
     def from_manifest(cls, m: Manifest) -> PackageJson | None:
-        """Build package.json from the npm deps (runtime + dev), or None when there are none.
-
-        An application (``[npm] app``) takes the workspace name and merges ``[npm.package]``;
-        tooling keeps the ``-npm`` suffix so a generated env file never shadows a real package.
-        ``[dev.npm.deps]`` becomes ``devDependencies``, emitted only when present so a manifest
-        without dev deps compiles to the exact same file as before.
-        """
-        if not m.npm.deps and not m.dev.npm.deps:
+        """Build package.json from `[nodejs]` deps, or None when there are none."""
+        nodejs = m.toolchains().get("nodejs")
+        if nodejs is None:
             return None
-        name = m.workspace.name if m.npm.app else f"{m.workspace.name}-npm"
-        dependencies = {package: spec.version or "*" for package, spec in m.npm.deps.items()}
-        fields: dict[str, Toml] = {"name": name, "dependencies": dependencies, **m.npm.package}
-        if m.dev.npm.deps:
-            fields["devDependencies"] = {
-                pkg: s.version or "*" for pkg, s in m.dev.npm.deps.items()
-            }
+        deps = nodejs.deps
+        dev = nodejs.dev.deps
+        if not deps and not dev:
+            return None
+        name = m.workspace.name if nodejs.app else f"{m.workspace.name}-npm"
+        dependencies = {package: spec.version or "*" for package, spec in deps.items()}
+        fields: dict[str, Toml] = {"name": name, "dependencies": dependencies, **nodejs.package}
+        if dev:
+            fields["devDependencies"] = {pkg: s.version or "*" for pkg, s in dev.items()}
         return cls.model_validate(fields)

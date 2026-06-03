@@ -21,7 +21,7 @@ class Cargo(Tool):
 
     def root(self, env: str) -> Path:
         """The pixi env prefix; crates install here so they share the env's activated PATH."""
-        return self.out / ".pixi" / "envs" / env
+        return self.pixi.env_prefix(env)
 
     def installed(self, env: str) -> dict[str, Installed]:
         crates = self.root(env) / ".crates.toml"

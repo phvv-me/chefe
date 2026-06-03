@@ -32,15 +32,19 @@ class Pixi(Tool):
         """pixi's home, where its `bin/` and global `envs/` live."""
         return Path(os.environ.get("PIXI_HOME") or Path.home() / ".pixi")
 
+    def env_prefix(self, env: str) -> Path:
+        """The provisioned pixi environment prefix for ``env``."""
+        return self.manifest.parent / ".pixi" / "envs" / env
+
     @contextmanager
     def activated(self, env: str = "default") -> Iterator[None]:
         """Prepend the provisioned env's `bin/` to PATH for the duration of the block.
 
-        `chefe install` puts a declared manager (pnpm/bun/…) inside this env, not on the user's
+        `chefe install` puts a declared manager (pnpm/yarn/…) inside this env, not on the user's
         PATH, so a tool run straight afterward must see the env's `bin/` to be found at all. The
         env may not exist yet (a dry call before install), in which case PATH is left untouched.
         """
-        binary = self.manifest.parent / ".pixi" / "envs" / env / "bin"
+        binary = self.env_prefix(env) / "bin"
         path = local.env["PATH"]
         with local.env(PATH=f"{binary}{os.pathsep}{path}" if binary.is_dir() else path):
             yield

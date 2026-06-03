@@ -91,7 +91,7 @@ plugins:
           name: 🇨🇳 简体中文
           build: true
   - llmstxt:
-      markdown_description: One manifest for conda, PyPI, npm, cargo and more, compiled into native files and run by the real tools.
+      markdown_description: One manifest for conda, Python, Node.js, Rust and more, compiled into native files and run by the real tools.
       full_output: llms-full.txt
       sections:
         Usage:

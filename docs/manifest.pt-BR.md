@@ -14,7 +14,7 @@ dotenv   = true                 # read .env into the environment, on by default
 
 ## Dependências
 
-A tabela `[deps]` pura é **conda**, a fonte padrão. Uma string simples é uma especificação de versão, e `*` significa qualquer uma.
+A tabela `[deps]` pura é **conda**, o resolvedor padrão. Uma string simples é uma especificação de versão, e `*` significa qualquer uma.
 
 ```toml
 [deps]
@@ -24,86 +24,85 @@ ripgrep = "*"
 pueue  = ">=4"
 ```
 
-## PyPI
+## Python
 
-Os pacotes PyPI são resolvidos pelo pixi via `uv` no **mesmo** ambiente. `[pypi]` guarda as configurações, `[pypi.deps]` os pacotes e `[pypi.indexes]` índices extras nomeados.
+Os pacotes Python são resolvidos pelo pixi via `uv` no **mesmo** ambiente. `[python]` guarda as configurações, `[python.deps]` os pacotes e `[python.indexes]` índices extras nomeados.
 
 ```toml
-[pypi]
+[python]
 index-strategy = "unsafe-best-match"
 
-[pypi.indexes]
+[python.indexes]
 pytorch = "https://download.pytorch.org/whl/cu124"
 
-[pypi.deps]
+[python.deps]
 torch = { version = ">=2.6", index = "pytorch" }
 ruff  = ">=0.6"
 ```
 
-## Outros ecossistemas
+## Toolchains por runtime
 
 Todo outro ecossistema é explícito, então nada é inferido.
 
 ```toml
-[cargo.deps]
+[rust.deps]
 bookokrat = "*"
 
-[npm.deps]
+[nodejs.dev.deps]
 prettier = ">=3"
 "@tobilu/qmd" = "*"
 ```
 
 !!! tip "Os runtimes são garantidos automaticamente"
     Cada ecossistema precisa do runtime da sua linguagem para instalar e executar, então o chefe
-    o adiciona do conda-forge quando ele falta. `[pypi.deps]` garante o `python`, `[npm.deps]` garante o `nodejs`,
-    `[cargo.deps]` garante o `rust` e `[gem.deps]` garante o `ruby`. Declare seu próprio
+    o adiciona do conda-forge quando ele falta. `[python.deps]` garante o `python`.
+    Toolchains como `nodejs` e `rust` devem ser declaradas em `[deps]`. Declare seu próprio
     `python` (ou outros) fixado em `[deps]` e o chefe o deixa em paz. Isso também vale por ambiente,
-    então um ambiente `no-default` que usa `[pypi.deps]` ainda recebe seu próprio `python`.
+    então um ambiente `no-default` que usa `[python.deps]` ainda recebe seu próprio `python`.
 
 ## Escolher o gerenciador do npm
 
-O ecossistema npm é o registro do npm, e `manager` dentro de `[npm]` nomeia o binário que o
+O ecossistema Node.js usa o registro npm, e `manager` dentro de `[nodejs]` nomeia o binário que o
 instala. O `package.json` compilado é o mesmo qualquer que seja a escolha do projeto, e o chefe
 executa a ferramenta nomeada dentro do ambiente gerado, então funciona qualquer gerenciador de
 pacotes que instale no seu diretório de trabalho, inclusive um que o chefe nunca tenha conhecido.
 
 ```toml
-[npm]
-manager = "pnpm"   # npm por padrão; pnpm, bun, aube, yarn ou qualquer outro binário
+[nodejs]
+manager = "pnpm"   # npm por padrão; pnpm, yarn ou qualquer binário compatível
 
-[npm.deps]
+[nodejs.deps]
 svelte = ">=5"
 ```
 
-npm é o padrão, então uma tabela `[npm.deps]` existente continua instalando com npm. Nomear outra
+`npm` é o padrão, então uma tabela `[nodejs.deps]` instala com npm quando `manager` não é definido. Nomear outra
 ferramenta muda só o binário que o chefe executa, nunca as dependências, o registro ou o arquivo.
 
 !!! note "O gerenciador precisa estar no PATH"
-    O chefe garante o `nodejs` para o ecossistema npm; o binário do gerenciador é você quem fornece.
-    O pnpm está no conda-forge, então adicioná-lo a `[deps]` mantém a instalação reproduzível,
-    enquanto ferramentas como bun ou aube vêm fora do conda e são instaladas uma vez na máquina.
+    Declare `nodejs` em `[deps]`; o binário do gerenciador é você quem fornece. Se o `manager`
+    nomear uma ferramenta ausente, o comando real falha quando for executado.
 
 ## Aplicações JavaScript
 
-Por padrão `[npm.deps]` é instalado como ferramentas dentro de `.chefe/`, ao lado do ambiente conda.
+Por padrão `[nodejs.deps]` é instalado como ferramentas dentro de `.chefe/`, ao lado do ambiente conda.
 Uma aplicação define `app = true`, e o chefe instala na raiz do projeto e escreve ali um
 `package.json` completo, para que Vite, SvelteKit e os demais resolvam `node_modules` do jeito usual.
 
 ```toml
-[npm]
+[nodejs]
 manager = "pnpm"
 app = true
 
-[npm.deps]
+[nodejs.deps]
 svelte = ">=5"
 vite = ">=8"
 
-[npm.package]
+[nodejs.package]
 type = "module"
 pnpm = { onlyBuiltDependencies = ["esbuild", "workerd"] }
 ```
 
-`[npm.package]` é mesclado no `package.json` tal como está, então qualquer campo que uma ferramenta
+`[nodejs.package]` é mesclado no `package.json` tal como está, então qualquer campo que uma ferramenta
 espere passa sem alterações, de `type` e `engines` até os ajustes próprios de um gerenciador como o
 `onlyBuiltDependencies` do pnpm. O chefe escreve o arquivo, então o `chefe.toml` continua sendo a
 única coisa que você edita e um `package.json` gerado é um artefato de build que pode ir para o
@@ -119,14 +118,14 @@ o `chefe install` as provisiona por padrão.
 [dev.deps]            # ferramentas de desenvolvimento conda
 ruff = "*"
 
-[dev.pypi.deps]       # ferramentas de desenvolvimento pypi
+[dev.python.deps]       # ferramentas de desenvolvimento Python
 pytest = ">=8"
 
-[dev.npm.deps]        # -> devDependencies do package.json
+[nodejs.dev.deps]     # -> devDependencies do package.json
 vite = ">=8"
 ```
 
-`[dev.npm.deps]` vai para `devDependencies`, enquanto `[dev.deps]` e `[dev.pypi.deps]` viram uma
+`[nodejs.dev.deps]` vai para `devDependencies`, enquanto `[dev.deps]` e `[dev.python.deps]` viram uma
 feature `dev` adicionada ao ambiente padrão, então seus linters e seu executor de testes são
 instalados ao lado das dependências de execução. Isso é mais leve que um `[envs.dev]` completo, que é
 um ambiente separado com a sua própria resolução.
@@ -164,10 +163,10 @@ scripts = ["scripts/activate.sh"]
 Adicione dependências condicionalmente por plataforma, e elas compilam para os targets nativos do pixi. Qualquer escopo aninha sob `[on.…]`.
 
 ```toml
-[on.linux.deps]
-cupy = ">=13"
 
-[on.linux-aarch64.pypi.deps]
+python = "*"
+
+[on.linux-aarch64.python.deps]
 some-arm-wheel = "*"
 ```
 
@@ -176,11 +175,10 @@ some-arm-wheel = "*"
 Combine ambientes extras, como features do pixi. `no-default = true` exclui as dependências base, e `platforms` restringe o ambiente a onde ele pode ser construído (assim um ambiente de GPU é pulado ao resolver em um laptop).
 
 ```toml
-[envs.serving]
-no-default = true
-platforms  = ["linux-64", "linux-aarch64"]
 
-[envs.serving.pypi.deps]
+python = "*"
+
+[envs.serving.python.deps]
 vllm = ">=0.6"
 ```
 

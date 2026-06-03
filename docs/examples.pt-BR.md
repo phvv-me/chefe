@@ -2,7 +2,7 @@
 
 Um `chefe.toml` real é o tour mais convincente. Este é o manifest por trás de um
 monorepo de ML com múltiplas linguagens, enxugado para facilitar a leitura mas com todos os recursos à
-mostra: conda + PyPI (torch de um índice customizado) + npm + cargo, um piso de CUDA
+mostra: conda + Python (torch de um índice customizado) + Node.js + Rust, um piso de CUDA
 de sistema, variáveis de ambiente, sobreposições por plataforma, um ambiente de serving
 isolado e tasks.
 
@@ -20,31 +20,32 @@ cuda = "13.0"
 CUDA_DEVICE_ORDER    = "PCI_BUS_ID"
 CUDA_VISIBLE_DEVICES = "0"
 
-[deps]                                    # bare table is conda, the default source
+[deps]                                    # bare table is conda, the default resolver
 python      = ">=3.14"
 nodejs      = ">=25"
+rust        = "*"
 ripgrep-all = ">=0.10"
 pandoc      = ">=3.9"
 # … runtimes, libs, and CLIs all live here
 
-[pypi]                                    # settings → pixi [pypi-options]
+[python]                                    # settings for Python packages
 index-strategy   = "unsafe-best-match"
 extra-index-urls = ["https://pypi.nvidia.com"]
 
-[pypi.indexes]                            # named indexes a dep can pin
+[python.indexes]                            # named indexes a dep can pin
 pytorch = "https://download.pytorch.org/whl/cu132"
 
-[pypi.deps]
+[python.deps]
 pydantic = ">=2.13"
 polars   = ">=1.40"
 torch    = { version = ">=2.11", index = "pytorch" }   # pinned to the named index
 # … the rest of the Python stack
 
-[npm.deps]
+[nodejs.dev.deps]
 "@tobilu/qmd" = ">=0.1"
 prettier      = ">=3"
 
-[cargo.deps]
+[rust.deps]
 bookokrat = { version = ">=0.1", locked = true }
 
 [on.linux.deps]                           # platform overlay → pixi [target.linux]
@@ -54,7 +55,10 @@ cupy      = ">=14"
 [envs.serving]                            # a named, isolated environment
 no-default = true
 
-[envs.serving.pypi.deps]
+[envs.serving.deps]
+python = "*"
+
+[envs.serving.python.deps]
 sglang        = ">=0.5"
 sglang-kernel = { url = "https://github.com/sgl-project/whl/releases/download/v0.4.2/sglang_kernel-0.4.2+cu130-cp310-abi3-manylinux2014_aarch64.whl" }
 
@@ -70,10 +74,10 @@ lint = "pre-commit run --all-files"
 
 ```sh
 chefe sync                 # compile chefe.toml → .chefe/{pixi.toml, package.json}
-chefe install              # provision every ecosystem at once (conda, PyPI, npm, cargo)
+chefe install              # provision every language/toolchain at once
 chefe shell                # an activated shell with all the binaries on PATH
 chefe run test             # run a task inside the environment
-chefe tree                 # declared vs installed, each checked in its own ecosystem
+chefe tree                 # declared vs installed, each checked in its own language/toolchain
 ```
 
 O ambiente `serving` isolado é provisionado e inspecionado da mesma forma:

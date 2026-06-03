@@ -8,10 +8,10 @@ from .tool import Tool
 class Node(Tool):
     """The JS backend: it runs whichever package manager a project names, in the env dir.
 
-    npm, pnpm, bun, aube, yarn, and any future tool all read the same `package.json` and write
-    the same `node_modules`, so the only thing chefe needs is the binary to call. Each installs
-    into its working directory by default, so running in `out` targets the env without a per-tool
-    directory flag and a new manager needs no code here, only its name in `[npm] manager`.
+    npm, pnpm, yarn, and any future compatible tool all read the same `package.json` and write the
+    same `node_modules`, so the only thing chefe needs is the binary to call. Each installs into
+    its working directory by default, so running in `out` targets the env without a per-tool
+    directory flag and a new manager needs no code here, only its name in `[nodejs] manager`.
     """
 
     filename = "package.json"
@@ -26,6 +26,10 @@ class Node(Tool):
 
     def cwd(self) -> Path:
         return self.out
+
+    def binary_dir(self) -> Path:
+        """Directory where installed npm package executables are linked."""
+        return self.out / "node_modules" / ".bin"
 
     def installed(self, env: str) -> dict[str, Installed]:
         manifests = (

@@ -24,38 +24,42 @@ chefe installs [pixi](https://pixi.sh), the engine it compiles to, on first run,
 
 ## What it is
 
-Conda, PyPI, npm, cargo. Real projects need several at once, scattered across `pixi.toml`, `package.json`, and `Cargo.toml`. chefe is the head chef. You write **one `chefe.toml`** recipe, chefe runs the line (pixi, npm, cargo) and plates a single environment. It never re-implements a solver. It runs the cooks.
+Conda, Python, Node.js, Rust, and whatever toolchains your project declares. Real projects need several at once, scattered across `pixi.toml`, `package.json`, and language-specific manifests. chefe is the head chef. You write **one `chefe.toml`** recipe, chefe runs the line and plates a single environment. It never re-implements a solver. It runs the cooks.
 
 ```toml
 [workspace]
 name     = "my-project"
 channels = ["conda-forge"]
 
-[deps]                      # bare table is conda, the default source
+[deps]                      # bare table is conda, the default resolver
 python  = ">=3.11"
+nodejs  = ">=25"
+rust    = "*"
 ripgrep = "*"
 
-[pypi.deps]                 # resolved by pixi-via-uv, in the same env
+[python.deps]               # table name matches the package in [deps]
 torch = ">=2.6"
 
-[cargo.deps]                # other ecosystems are explicit via [<eco>.deps]
-bookokrat = "*"
-
-[npm.deps]
+[nodejs.dev.deps]           # table name matches the package in [deps]
 prettier = ">=3"
+
+[rust.deps]
+bookokrat = "*"
 ```
 
 ## Usage
 
 ```sh
 chefe init                 # scaffold a chefe.toml
-chefe add ripgrep          # add deps, use --pypi / --cargo / --npm for others
-chefe install              # provision every ecosystem at once
+chefe add ripgrep          # conda is the default resolver
+chefe add torch -l python
+chefe add prettier -l nodejs
+chefe install              # provision every language/toolchain at once
 chefe x ruff check .       # run a tool in a throwaway env, like uvx
-chefe tree                 # what's declared vs installed, per ecosystem
+chefe tree                 # what's declared vs installed, per language/toolchain
 ```
 
-> **Tip** run `chefe tree` anytime to see declared vs installed across every ecosystem at a glance.
+> **Tip** run `chefe tree` anytime to see declared vs installed across every language/toolchain at a glance.
 
 ## Lore
 

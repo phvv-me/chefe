@@ -5,12 +5,11 @@ from pathlib import Path
 
 from hypothesis import settings
 from hypothesis.stateful import RuleBasedStateMachine, initialize, invariant, rule
-from hypothesis.strategies import sampled_from
 
 from chefe.compiled import PixiManifest
 from chefe.manifest import Document, Manifest
 
-from .strategies import PACKAGES, SOURCES_LIST, VERSIONS
+from .strategies import PACKAGES, VERSIONS, sources
 
 
 class ManifestMachine(RuleBasedStateMachine):
@@ -32,9 +31,11 @@ class ManifestMachine(RuleBasedStateMachine):
             '[workspace]\nname = "w"\nplatforms = ["linux-64"]\n\n[deps]\npython = ">=3.11"\n'
         )
 
-    @rule(source=sampled_from(SOURCES_LIST), package=PACKAGES, spec=VERSIONS)
+    @rule(source=sources(), package=PACKAGES, spec=VERSIONS)
     def add(self, source: str, package: str, spec: str) -> None:
         document = Document(self.path)
+        if source != "conda":
+            document.add("conda", "", (source,), "*")
         document.add(source, "", (package,), spec)
         document.save()
 

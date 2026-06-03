@@ -7,9 +7,9 @@ flowchart TB
     subgraph recipe["一份食谱（chefe.toml）"]
         direction LR
         D["[deps]<br/>conda"]
-        PY["[pypi.deps]"]
-        NP["[npm.deps]"]
-        CG["[cargo.deps]"]
+        PY["[python.deps]"]
+        NP["[nodejs.deps]"]
+        CG["[rust.deps]"]
     end
 
     subgraph compiled["chefe sync 生成 .chefe/"]
@@ -47,15 +47,17 @@ flowchart TB
 
 - **结构**由 chefe 的 schema 校验，而**包规格说明**始终是各工具自己的职责。
 - 通过 `chefe add` 和 `chefe remove` 编辑 `chefe.toml` 会保留你的注释和格式。
-- `pixi`（内含 `uv`）是 conda 和 PyPI 的底层引擎，其他生态则是其上轻薄而显式的一层。
+- `pixi`（内含 `uv`）是 conda 和 Python packages 的底层引擎，其他language/toolchain则是其上轻薄而显式的一层。
 
 ## 快速上手
 
 ```sh
 chefe init                 # scaffold a chefe.toml
-chefe add ripgrep          # add deps, use --pypi / --cargo / --npm for others
-chefe install              # provision every ecosystem at once
-chefe tree                 # what's declared vs installed, per ecosystem
+chefe add ripgrep          # conda is the default resolver
+chefe add torch -l python
+chefe add prettier -l nodejs
+chefe install              # provision every language/toolchain at once
+chefe tree                 # what's declared vs installed, per language/toolchain
 ```
 
 接下来请看 [manifest 参考](manifest.md) 和 [命令参考](commands.md)。

@@ -31,8 +31,11 @@
   [dependencies]
   python = ">=3.11"
   ripgrep = "*"
-  rust = "*"
   nodejs = "*"
+  rust = "*"
+  zig = ">=0.14"
+  c-compiler = "*"
+  cxx-compiler = "*"
   
   [pypi-dependencies]
   ruff = ">=0.6"

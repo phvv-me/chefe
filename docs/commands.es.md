@@ -7,8 +7,8 @@ chefe refleja los verbos de pixi sobre el manifest unificado. La mayoría de los
 | `chefe init` | scaffold de un `chefe.toml` inicial en el directorio actual |
 | `chefe sync` | compila `chefe.toml` en `.chefe/{pixi.toml, package.json, …}` |
 | `chefe install [env]` | sync y luego aprovisiona cada ecosistema para `env` |
-| `chefe update [env]` | vuelve a resolver a las versiones más nuevas permitidas en todos los ecosistemas |
-| `chefe upgrade [pkg…]` | sube las restricciones de conda + pypi del manifest a lo más reciente, luego sync |
+| `chefe update [env]` | vuelve a resolver a las versiones más nuevas permitidas en todos los lenguajes/toolchains |
+| `chefe upgrade [pkg…]` | sube las restricciones de conda + Python del manifest a lo más reciente, luego sync |
 | `chefe add <pkg…>` | agrega paquetes al manifest, luego vuelve a sincronizar |
 | `chefe remove <pkg…>` | elimina paquetes donde sea que estén declarados, luego vuelve a sincronizar |
 | `chefe tree [env]` | declarado vs instalado, cada dep verificada en **su propio** ecosistema |
@@ -29,13 +29,13 @@ Escribe un `chefe.toml` mínimo con la plataforma actual, `conda-forge` y `pytho
 
 ## add
 
-Conda es la fuente por defecto, y los flags eligen otro ecosistema. `--spec` define la versión (por defecto `*`), mientras que `--env` apunta a un entorno con nombre.
+Conda es el resolver por defecto, y `--language`/`-l` elige Python o cualquier runtime declarado en `[deps]`. `--spec` define la versión (por defecto `*`), mientras que `--env` apunta a un entorno con nombre.
 
 ```sh
 chefe add ripgrep numpy
-chefe add torch --pypi --spec ">=2.6"
-chefe add prettier --npm
-chefe add vllm --pypi --env serving
+chefe add torch -l python --spec ">=2.6"
+chefe add prettier -l nodejs
+chefe add vllm -l python --env serving
 ```
 
 Las ediciones conservan tus comentarios y formato.
@@ -47,7 +47,7 @@ chefe tree
 chefe tree serving
 ```
 
-Cada paquete declarado se verifica contra el ecosistema en el que fue declarado. Conda va contra el entorno de pixi, npm contra `.chefe/node_modules`, y cargo contra el `.crates.toml` del entorno. chefe reporta cada uno como `✓` ok, `≠` desviación, o `✗` faltante, con un conteo transitivo.
+Cada paquete declarado se verifica contra la fuente en la que fue declarado. Conda va contra el entorno de pixi, los paquetes Node.js contra `.chefe/node_modules`, y los crates Rust contra el `.crates.toml` del entorno. chefe reporta cada uno como `✓` ok, `≠` desviación, o `✗` faltante, con un conteo transitivo.
 
 ## run y shell
 
@@ -68,10 +68,10 @@ Como `uvx` o `pipx run`, `chefe x` aprovisiona un entorno efímero para la herra
 
 ## global install
 
-Aprovisiona cada ecosistema en un solo entorno global compartido, el equivalente de `chefe install` para herramientas que quieres en todas partes. conda pasa por `pixi global`, que además trae los runtimes de python/node/rust; luego el propio pip/npm/cargo del entorno global agrega las deps de pypi/npm/cargo. Sin uv de por medio.
+Aprovisiona cada fuente en un solo entorno global compartido, el equivalente de `chefe install` para herramientas que quieres en todas partes. Conda pasa por `pixi global`; los adaptadores luego usan binarios de ese entorno global para fuentes que necesitan una segunda etapa, como Python, Node.js y Rust.
 
 ```sh
-chefe global install          # every ecosystem's deps into a shared global env
+chefe global install          # every language/toolchain's deps into a shared global env
 chefe global install mytools  # name the env explicitly
 ```
 

@@ -5,8 +5,10 @@ from pathlib import Path
 
 import pytest
 from faker import Faker
+from plumbum import local
 
 from chefe.backends import Cargo, Node, Pixi
+from chefe.errors import ChefeError
 from chefe.manager import PackageManager
 from chefe.state import Installed
 
@@ -24,73 +26,317 @@ def test_init_scaffolds_then_is_idempotent(tmp_path: Path, faker_instance: Faker
     assert (tmp_path / "chefe.toml").read_text() == text
 
 
-def test_sync_writes_pixi_and_package_json(workspace: Workspace) -> None:
-    """sync compiles pixi.toml always, and a tooling package.json under .chefe for npm deps."""
-    manager = workspace('[deps]\npython = ">=3.11"\n[npm.deps]\nleftpad = "*"\n')
+@pytest.mark.parametrize(
+    ("body", "package_location", "manager_name"),
+    [
+        (
+            """
+            [deps]
+            python = ">=3.11"
+            nodejs = "*"
+
+            [nodejs.deps]
+            leftpad = "*"
+            """,
+            "out",
+            "npm",
+        ),
+        (
+            """
+            [deps]
+            python = ">=3.11"
+            """,
+            None,
+            None,
+        ),
+        (
+            """
+            [deps]
+            nodejs = "*"
+
+            [nodejs]
+            app = true
+
+            [nodejs.deps]
+            svelte = ">=5"
+            """,
+            "root",
+            "npm",
+        ),
+        (
+            """
+            [deps]
+            nodejs = "*"
+
+            [nodejs]
+            manager = "pnpm"
+
+            [nodejs.dev.deps]
+            qmd = "*"
+            """,
+            "out",
+            "pnpm",
+        ),
+    ],
+    ids=["tooling-node", "pixi-only", "node-app", "node-dev-manager"],
+)
+def test_sync_package_json_location(
+    workspace: Workspace,
+    body: str,
+    package_location: str | None,
+    manager_name: str | None,
+) -> None:
+    """sync always writes pixi.toml, and writes package.json only where Node needs it."""
+    manager = workspace(body)
     manager.sync()
     assert manager.pixi.manifest.exists()
-    assert (manager.out / "package.json").exists()
-
-
-def test_sync_skips_package_json_without_npm(workspace: Workspace) -> None:
-    manager = workspace('[deps]\npython = ">=3.11"\n')
-    manager.sync()
-    assert not (manager.out / "package.json").exists()
-
-
-def test_app_mode_syncs_package_json_at_the_project_root(workspace: Workspace) -> None:
-    """`[npm] app` writes package.json and resolves the driver at the root, not under .chefe."""
-    manager = workspace('[npm]\napp = true\n[npm.deps]\nsvelte = ">=5"\n')
-    manager.sync()
-    assert (manager.root / "package.json").exists()  # where Vite resolves node_modules
-    assert not (manager.out / "package.json").exists()  # not the tooling location
-    assert manager.node(manager.load()).out == manager.root
+    assert (manager.out / "package.json").exists() is (package_location == "out")
+    assert (manager.root / "package.json").exists() is (package_location == "root")
+    if manager_name is None:
+        return
+    node = manager.node(manager.load())
+    assert node.name == manager_name
+    assert node.cwd() == (manager.root if package_location == "root" else manager.out)
 
 
 def test_clean_removes_generated_env(workspace: Workspace) -> None:
-    manager = workspace('[deps]\npython = "*"\n')
+    manager = workspace(
+        """
+        [deps]
+        python = "*"
+        """
+    )
     manager.sync()
     assert manager.out.exists()
     manager.clean()
     assert not manager.out.exists()
 
 
-def test_add_cargo_edits_manifest_without_subprocess(
+def test_add_toolchain_dep_edits_manifest_without_subprocess(
     workspace: Workspace, recording_backends: list[tuple[str, ...]]
 ) -> None:
-    """A cargo add is a pure Document edit (pixi never resolves it), then a sync."""
-    manager = workspace('[deps]\npython = "*"\n')
-    manager.add("ripgrep", cargo=True, spec=">=14")
-    assert "[cargo.deps]" in manager.manifest.read_text()
-    assert manager.load().cargo.deps["ripgrep"].version == ">=14"
+    """A non-pixi language writes `[<language>.deps]` after its runtime is declared."""
+    manager = workspace(
+        """
+        [deps]
+        python = "*"
+        rust = "*"
+        """
+    )
+    manager.add("ripgrep", language="rust", spec=">=14")
+    text = manager.manifest.read_text()
+    assert "[rust.deps]" in text
+    assert 'rust = "*"' in text
+    assert manager.load().toolchains()["rust"].deps["ripgrep"].version == ">=14"
     assert ("Pixi", "add") not in [(c[0], c[1]) for c in recording_backends]
 
 
-def test_add_pypi_goes_through_pixi_and_pull(
+@pytest.mark.parametrize(
+    ("language", "spec", "expected"),
+    [
+        ("conda", "*", ("Pixi", "add", "requests")),
+        ("python", ">=2", ("Pixi", "add", "--pypi", "requests>=2")),
+    ],
+)
+def test_add_pixi_languages_go_through_pixi_and_pull(
     workspace: Workspace,
     recording_backends: list[tuple[str, ...]],
     monkeypatch: pytest.MonkeyPatch,
+    language: str,
+    spec: str,
+    expected: tuple[str, ...],
 ) -> None:
-    """A pypi add syncs, calls `pixi add --pypi`, then pulls resolved versions back."""
+    """Conda and Python adds go through pixi, then pull resolved versions back."""
     pulled: list[bool] = []
     monkeypatch.setattr(PackageManager, "pull", lambda self: pulled.append(True))
-    manager = workspace('[deps]\npython = "*"\n')
-    manager.add("requests", pypi=True)
-    assert ("Pixi", "add") in [(c[0], c[1]) for c in recording_backends]
+    manager = workspace(
+        """
+        [deps]
+        python = "*"
+        """
+    )
+    manager.add("requests", language=language, spec=spec)
+    assert expected in recording_backends
     assert pulled == [True]
+
+
+@pytest.mark.parametrize(
+    ("body", "packages", "language", "env", "match", "absent"),
+    [
+        (
+            """
+            [deps]
+            python = "*"
+            """,
+            ("ripgrep",),
+            "rust",
+            "",
+            r"Language `rust` is not declared in \[deps\]",
+            "[rust.deps]",
+        ),
+        (
+            """
+            [deps]
+            python = "*"
+            """,
+            ("requests",),
+            "pypi",
+            "",
+            r"Language `pypi` is not declared in \[deps\]",
+            "",
+        ),
+        (
+            """
+            [deps]
+            python = "*"
+            """,
+            ("requests",),
+            "",
+            "",
+            "Language cannot be empty",
+            "",
+        ),
+        (
+            """
+            [deps]
+            python = "*"
+            """,
+            (),
+            "conda",
+            "",
+            "No packages given",
+            "",
+        ),
+        (
+            """
+            [deps]
+            python = "*"
+            """,
+            ("prettier",),
+            "nodejs",
+            "frontend",
+            r"Environment `frontend` does not exist.*\[envs.frontend.deps\]",
+            "",
+        ),
+        (
+            """
+            [deps]
+            python = "*"
+
+            [envs.frontend.deps]
+            python = "*"
+            """,
+            ("prettier",),
+            "nodejs",
+            "frontend",
+            r"Language `nodejs` is not declared in \[envs.frontend.deps\]",
+            "",
+        ),
+    ],
+)
+def test_add_reports_language_errors(
+    workspace: Workspace,
+    body: str,
+    packages: tuple[str, ...],
+    language: str,
+    env: str,
+    match: str,
+    absent: str,
+) -> None:
+    manager = workspace(body)
+    with pytest.raises(ChefeError, match=match):
+        manager.add(*packages, language=language, env=env)
+    if absent:
+        assert absent not in manager.manifest.read_text()
+
+
+@pytest.mark.parametrize(
+    ("text", "match"),
+    [
+        (None, "chefe.toml not found"),
+        ("[workspace\n", r"invalid TOML.*Expected"),
+        ('[deps]\npython = "*"\n', "Field required"),
+        (
+            """
+            [workspace]
+            name = "w"
+
+            [nodejs.deps]
+            prettier = "*"
+            """,
+            r"\[deps\]",
+        ),
+        (
+            """
+            [workspace]
+            name = "w"
+
+            [dev.nodejs.deps]
+            prettier = "*"
+            """,
+            r"\[dev.deps\]",
+        ),
+        (
+            """
+            [workspace]
+            name = "w"
+
+            [on.linux-64.nodejs.deps]
+            prettier = "*"
+            """,
+            r"\[on.linux-64.deps\]",
+        ),
+        (
+            """
+            [workspace]
+            name = "w"
+
+            [envs.frontend.nodejs.deps]
+            prettier = "*"
+            """,
+            r"\[envs.frontend.deps\]",
+        ),
+        (
+            """
+            [workspace]
+            name = "w"
+
+            [envs.default.deps]
+            python = "*"
+            """,
+            "Use the base manifest for the default environment",
+        ),
+    ],
+)
+def test_load_reports_user_errors(tmp_path: Path, text: str | None, match: str) -> None:
+    if text is not None:
+        (tmp_path / "chefe.toml").write_text(text)
+    with pytest.raises(ChefeError, match=match):
+        PackageManager(tmp_path).load()
 
 
 def test_remove_drops_from_manifest(
     workspace: Workspace, recording_backends: list[tuple[str, ...]]
 ) -> None:
-    manager = workspace('[deps]\npython = "*"\nripgrep = "*"\n')
+    manager = workspace(
+        """
+        [deps]
+        python = "*"
+        ripgrep = "*"
+        """
+    )
     manager.remove("ripgrep")
     assert "ripgrep" not in manager.load().deps
 
 
 def test_pull_mirrors_resolved_versions(workspace: Workspace) -> None:
     """pull reads the generated pixi.toml and bumps the manifest's declared versions."""
-    manager = workspace('[deps]\npython = ">=3.11"\n')
+    manager = workspace(
+        """
+        [deps]
+        python = ">=3.11"
+        """
+    )
     manager.sync()
     manager.pixi.manifest.write_text(
         '[workspace]\nname = "w"\n\n[dependencies]\npython = "3.12.5"\n'
@@ -103,19 +349,45 @@ def test_install_drives_every_backend(
     workspace: Workspace, recording_backends: list[tuple[str, ...]]
 ) -> None:
     """install syncs then fans out to pixi install, npm install, and a cargo sync."""
-    manager = workspace('[deps]\npython = "*"\n[cargo.deps]\nrg = "*"\n')
+    manager = workspace(
+        """
+        [deps]
+        python = "*"
+        nodejs = "*"
+        rust = "*"
+
+        [nodejs.dev.deps]
+        qmd = "*"
+
+        [rust.deps]
+        rg = "*"
+        """
+    )
     manager.install()
     verbs = {(c[0], c[1]) for c in recording_backends}
     assert {("Pixi", "install"), ("Node", "install"), ("Cargo", "sync")} <= verbs
 
 
-def test_node_backend_is_generic_over_the_manager_name(workspace: Workspace) -> None:
-    """`[npm] manager` is any binary name; the backend runs it in the env dir, no code per tool."""
-    for name in ("npm", "pnpm", "bun", "aube", "deno"):
-        manager = workspace(f'[npm]\nmanager = "{name}"\n[npm.deps]\nx = "*"\n')
-        node = manager.node(manager.load())
-        assert node.name == name
-        assert node.cwd() == manager.out
+@pytest.mark.parametrize("manager_name", ["npm", "pnpm", "yarn", "aube"])
+def test_node_backend_is_generic_over_the_manager_name(
+    workspace: Workspace, manager_name: str
+) -> None:
+    """`[nodejs] manager` is any binary name; the backend runs it in the env dir."""
+    manager = workspace(
+        f"""
+        [deps]
+        nodejs = "*"
+
+        [nodejs]
+        manager = "{manager_name}"
+
+        [nodejs.deps]
+        x = "*"
+        """
+    )
+    node = manager.node(manager.load())
+    assert node.name == manager_name
+    assert node.cwd() == manager.out
 
 
 def test_update_and_upgrade_and_shell_and_run(
@@ -125,7 +397,12 @@ def test_update_and_upgrade_and_shell_and_run(
 ) -> None:
     """The remaining pixi-driven verbs each reach the backend with their verb."""
     monkeypatch.setattr(PackageManager, "pull", lambda self: None)
-    manager = workspace('[deps]\npython = "*"\n')
+    manager = workspace(
+        """
+        [deps]
+        python = "*"
+        """
+    )
     manager.update()
     manager.upgrade("python")
     manager.shell()
@@ -133,11 +410,45 @@ def test_update_and_upgrade_and_shell_and_run(
     assert {"update", "upgrade", "shell", "run"} <= {c[1] for c in recording_backends}
 
 
+def test_run_and_shell_expose_npm_bins(
+    workspace: Workspace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """npm dev CLIs are runnable without defining one task per executable."""
+    manager = workspace(
+        """
+        [deps]
+        nodejs = "*"
+
+        [nodejs.dev.deps]
+        "@tobilu/qmd" = ">=0.1"
+        """
+    )
+    manager.sync()
+    binary_dir = manager.node(manager.load()).binary_dir()
+    binary_dir.mkdir(parents=True)
+    seen: list[tuple[str, bool]] = []
+
+    def record(self: Pixi, verb: str, *args: str, **flags: bool | str | None) -> bool:
+        seen.append((verb, str(binary_dir) in local.env["PATH"]))
+        return True
+
+    monkeypatch.setattr(Pixi, "__call__", record)
+    manager.run("qmd", "--version")
+    manager.shell()
+    assert seen == [("run", True), ("shell", True)]
+
+
 def test_global_install_builds_specs(
     workspace: Workspace, recording_backends: list[tuple[str, ...]]
 ) -> None:
     """global_install turns `[deps]` into conda specs and installs them into a shared env."""
-    manager = workspace('[deps]\npython = ">=3.11"\nripgrep = "*"\n')
+    manager = workspace(
+        """
+        [deps]
+        python = ">=3.11"
+        ripgrep = "*"
+        """
+    )
     manager.global_install("shared")
     glob = next(c for c in recording_backends if c[1] == "shared")
     specs = glob[2]  # global_install passes the spec list as a single positional arg
@@ -166,7 +477,13 @@ def test_tree_renders_against_installed(
     )
     monkeypatch.setattr(Node, "installed", lambda self, env: {})
     monkeypatch.setattr(Cargo, "installed", lambda self, env: {})
-    manager = workspace('[deps]\npython = ">=3.11"\nripgrep = "*"\n')
+    manager = workspace(
+        """
+        [deps]
+        python = ">=3.11"
+        ripgrep = "*"
+        """
+    )
     manager.tree("default")  # exercises ok / drift / missing buckets and the transitive count
 
 

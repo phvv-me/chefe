@@ -3,15 +3,37 @@ from __future__ import annotations
 import json
 import tomllib
 
+import pytest
 import tomlkit
 from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
+from pydantic import ValidationError
 
 from chefe.compiled import PackageJson, PixiManifest
-from chefe.manifest import Document, Manifest, Npm, Runtime, Scope, Spec
+from chefe.manifest import Document, Manifest, Scope, Spec
 from chefe.utils import satisfied
 
-from .strategies import ECOSYSTEMS, dep_maps, manifests, specs
+from .strategies import dep_maps, manifests, specs, toolchain_names
+
+
+def manifest_with_nodejs_deps(deps: dict[str, Spec]) -> Manifest:
+    """Build a manifest from TOML with a generated `[nodejs.deps]` table."""
+    doc = tomlkit.parse(
+        """
+        [workspace]
+        name = "w"
+        platforms = ["linux-64"]
+
+        [deps]
+        nodejs = "*"
+
+        [nodejs.deps]
+        """
+    )
+    table = doc["nodejs"]["deps"]
+    for name, spec in deps.items():
+        table[name] = spec.to_toml()
+    return Manifest.from_toml(tomlkit.dumps(doc))
 
 
 @given(specs())
@@ -33,25 +55,41 @@ def test_manifest_validation_is_idempotent(manifest: Manifest) -> None:
     assert Manifest.model_validate(dumped).model_dump(by_alias=True) == dumped
 
 
-@given(manifests())
-def test_runtime_is_ensured_per_ecosystem(manifest: Manifest) -> None:
-    """A non-empty `[<eco>.deps]` forces its conda runtime into the compiled `dependencies`."""
+def test_python_deps_compile_to_pixi_python_path() -> None:
+    """`[python.deps]` compiles to Pixi's Python package table."""
+    manifest = Manifest.from_toml(
+        """
+        [workspace]
+        name = "w"
+        platforms = ["linux-64"]
+
+        [deps]
+        python = ">=3.12"
+
+        [python.deps]
+        requests = ">=2"
+        """
+    )
     pixi = PixiManifest.from_manifest(manifest)
-    for eco in ECOSYSTEMS:
-        # pypi deps land in pypi-dependencies; their `python` runtime is ensured in [deps].
-        if getattr(manifest, eco).deps:
-            assert Runtime[eco].value in pixi.dependencies
+    assert pixi.dependencies["python"].version == ">=3.12"
+    assert pixi.pypi_dependencies["requests"].version == ">=2"
 
 
 @given(pin=st.sampled_from(["==3.10", ">=3.12", "*"]))
 def test_user_pinned_runtime_is_preserved(pin: str) -> None:
     """A runtime the user pins in `[deps]` is never overwritten by the ensure step."""
-    manifest = Manifest.model_validate(
-        {
-            "workspace": {"name": "w", "platforms": ["linux-64"]},
-            "deps": {"python": pin},
-            "pypi": {"deps": {"requests": "*"}},
-        }
+    manifest = Manifest.from_toml(
+        f"""
+        [workspace]
+        name = "w"
+        platforms = ["linux-64"]
+
+        [deps]
+        python = "{pin}"
+
+        [python.deps]
+        requests = "*"
+        """
     )
     pixi = PixiManifest.from_manifest(manifest)
     assert pixi.dependencies["python"].model_dump() == Spec.model_validate(pin).model_dump()
@@ -85,40 +123,56 @@ def test_declared_matches_active_scope_fold(manifest: Manifest) -> None:
     overlays = [s for plat, s in manifest.on.items() if platform.startswith(plat)]
 
     base = manifest.declared("default", platform)
-    assert {n: d.source for n, d in base.items()} == fold([manifest, *overlays])
+    assert {n: d.source for n, d in base.items()} == fold([manifest, *overlays, manifest.dev])
 
     for env_name, env in manifest.envs.items():
         scoped = manifest.declared(env_name, platform)
         assert {n: d.source for n, d in scoped.items()} == fold([manifest, *overlays, env])
         # An env's exclusive dep (not in any active default scope) is absent from default.
         for name in env.deps:
-            if name not in fold([manifest, *overlays]):
+            if name not in fold([manifest, *overlays, manifest.dev]):
                 assert name not in base
 
 
-def test_env_carries_nested_platform_overlay() -> None:
-    """A `[envs.<name>.on.<plat>]` overlay compiles into the feature's `target` table."""
-    manifest = Manifest.model_validate(
-        {
-            "workspace": {"name": "w", "platforms": ["linux-64"]},
-            "envs": {"serving": {"on": {"linux-64": {"deps": {"cupy": ">=13"}}}}},
-        }
+@pytest.mark.parametrize(
+    ("body", "expected_version"),
+    [
+        (
+            """
+            [envs.serving.on.linux-64.deps]
+            cupy = ">=13"
+            """,
+            ">=13",
+        ),
+        (
+            """
+            [envs.serving.deps]
+            numpy = "*"
+
+            [envs.serving.on.linux-64]
+            """,
+            None,
+        ),
+    ],
+    ids=["with-target-deps", "empty-target"],
+)
+def test_env_platform_overlay_target_rendering(body: str, expected_version: str | None) -> None:
+    """Env platform overlays emit a Pixi target only when they contain deps."""
+    manifest = Manifest.from_toml(
+        f"""
+        [workspace]
+        name = "w"
+        platforms = ["linux-64"]
+
+        {body}
+        """
     )
     pixi = PixiManifest.from_manifest(manifest)
+    if expected_version is None:
+        assert Document.dig(pixi.feature, "serving", "target") == {}
+        return
     overlay = Document.dig(pixi.feature, "serving", "target", "linux-64", "dependencies")
-    assert Spec.model_validate(overlay["cupy"]).version == ">=13"
-
-
-def test_empty_env_overlay_emits_no_target() -> None:
-    """An env overlay with no deps contributes no `target` entry to its feature."""
-    manifest = Manifest.model_validate(
-        {
-            "workspace": {"name": "w", "platforms": ["linux-64"]},
-            "envs": {"serving": {"deps": {"numpy": "*"}, "on": {"linux-64": {}}}},
-        }
-    )
-    pixi = PixiManifest.from_manifest(manifest)
-    assert Document.dig(pixi.feature, "serving", "target") == {}
+    assert Spec.model_validate(overlay["cupy"]).version == expected_version
 
 
 def test_satisfied_tolerates_unparseable_spec() -> None:
@@ -127,88 +181,351 @@ def test_satisfied_tolerates_unparseable_spec() -> None:
     assert satisfied(">=1.0", "not-a-version")
 
 
-def test_npm_manager_is_a_free_name_defaulting_to_npm() -> None:
-    """`[npm] manager` is any binary name, defaults to npm, and never changes the package.json."""
-    npm = {"deps": {"svelte": ">=5"}}
-    base = {"workspace": {"name": "w", "platforms": ["linux-64"]}, "npm": npm}
-    default = Manifest.model_validate(base)
-    picked = Manifest.model_validate({**base, "npm": {"manager": "deno", **npm}})
-    assert default.npm.manager == "npm"  # the default driver
-    assert picked.npm.manager == "deno"  # any name, even one chefe never coded
+def test_nodejs_manager_is_a_free_name_defaulting_to_npm() -> None:
+    """`[nodejs] manager` is any binary name and never changes the package.json."""
+    default = Manifest.from_toml(
+        """
+        [workspace]
+        name = "w"
+        platforms = ["linux-64"]
+
+        [deps]
+        nodejs = "*"
+
+        [nodejs.deps]
+        svelte = ">=5"
+        """
+    )
+    picked = Manifest.from_toml(
+        """
+        [workspace]
+        name = "w"
+        platforms = ["linux-64"]
+
+        [deps]
+        nodejs = "*"
+
+        [nodejs]
+        manager = "aube"
+
+        [nodejs.deps]
+        svelte = ">=5"
+        """
+    )
+    assert default.toolchains()["nodejs"].manager is None  # the backend defaults to npm
+    assert picked.toolchains()["nodejs"].manager == "aube"  # any name chefe never coded
     # the npm registry is the same whichever driver installs it, so the compiled file matches
     default_pkg, picked_pkg = PackageJson.from_manifest(default), PackageJson.from_manifest(picked)
     assert default_pkg is not None and picked_pkg is not None
     assert default_pkg.to_json() == picked_pkg.to_json()
 
 
-def test_dev_npm_deps_become_dev_dependencies() -> None:
-    """`[dev.npm.deps]` compile to devDependencies; runtime deps stay in dependencies."""
-    manifest = Manifest.model_validate(
-        {
-            "workspace": {"name": "app", "platforms": ["linux-64"]},
-            "npm": {"app": True, "deps": {"svelte": ">=5"}},
-            "dev": {"npm": {"deps": {"vite": ">=8"}}},
-        }
+@pytest.mark.parametrize(
+    ("workspace_name", "node_options", "dev_deps", "expected_name", "expected_dev"),
+    [
+        (
+            "app",
+            """
+            [nodejs]
+            app = true
+            """,
+            """
+            [nodejs.dev.deps]
+            vite = ">=8"
+            """,
+            "app",
+            {"vite": ">=8"},
+        ),
+        ("w", "", "", "w-npm", None),
+    ],
+    ids=["with-dev-deps", "without-dev-deps"],
+)
+def test_nodejs_dev_dependencies_are_optional(
+    workspace_name: str,
+    node_options: str,
+    dev_deps: str,
+    expected_name: str,
+    expected_dev: dict[str, str] | None,
+) -> None:
+    """`[nodejs.dev.deps]` compile to devDependencies only when present."""
+    manifest = Manifest.from_toml(
+        f"""
+        [workspace]
+        name = "{workspace_name}"
+        platforms = ["linux-64"]
+
+        [deps]
+        nodejs = "*"
+
+        {node_options}
+
+        [nodejs.deps]
+        svelte = ">=5"
+
+        {dev_deps}
+        """
     )
     package = PackageJson.from_manifest(manifest)
     assert package is not None
     data = json.loads(package.to_json())
+    assert data["name"] == expected_name
     assert data["dependencies"] == {"svelte": ">=5"}
-    assert data["devDependencies"] == {"vite": ">=8"}
+    if expected_dev is None:
+        assert "devDependencies" not in data
+    else:
+        assert data["devDependencies"] == expected_dev
+    assert "nodejs" in PixiManifest.from_manifest(manifest).dependencies
 
 
-def test_no_dev_npm_omits_dev_dependencies() -> None:
-    """Without `[dev.npm.deps]`, package.json has no devDependencies key (compiles as before)."""
-    manifest = Manifest.model_validate(
-        {"workspace": {"name": "w", "platforms": ["linux-64"]}, "npm": {"deps": {"svelte": ">=5"}}}
+def test_runtime_keyed_toolchains_are_discovered_from_deps() -> None:
+    """Any `[deps]` package can have a matching toolchain table."""
+    manifest = Manifest.from_toml(
+        """
+        [workspace]
+        name = "toolchains"
+        platforms = ["linux-64"]
+
+        [deps]
+        nodejs = ">=25"
+        bun = ">=1"
+        deno = ">=2"
+        zig = ">=0.14"
+        c-compiler = "*"
+        cxx-compiler = "*"
+
+        [nodejs]
+        manager = "pnpm"
+
+        [nodejs.dev.deps]
+        prettier = ">=3"
+
+        [bun]
+        manager = "bun"
+
+        [deno]
+        manager = "deno"
+
+        [zig]
+        manager = "zig"
+
+        [c-compiler]
+        manager = "clang"
+
+        [cxx-compiler]
+        manager = "conan"
+
+        [cxx-compiler.deps]
+        fmt = ">=11"
+        """
     )
-    package = PackageJson.from_manifest(manifest)
-    assert package is not None
-    assert "devDependencies" not in json.loads(package.to_json())
+    toolchains = manifest.toolchains_for("default", "linux-64")
+    assert set(toolchains) == {"nodejs", "bun", "deno", "zig", "c-compiler", "cxx-compiler"}
+    assert toolchains["nodejs"].manager == "pnpm"
+    assert toolchains["bun"].manager == "bun"
+    assert toolchains["deno"].manager == "deno"
+    assert toolchains["zig"].manager == "zig"
+    assert toolchains["c-compiler"].manager == "clang"
+    assert toolchains["cxx-compiler"].deps["fmt"].version == ">=11"
+    declared = manifest.declared("default", "linux-64")
+    assert declared["fmt"].source == "cxx-compiler"
 
 
-def test_dev_conda_and_pypi_become_a_pixi_dev_feature() -> None:
-    """`[dev.deps]`/`[dev.pypi.deps]` become a `dev` feature added to the default environment."""
-    manifest = Manifest.model_validate(
-        {
-            "workspace": {"name": "w", "platforms": ["linux-64"]},
-            "dev": {"deps": {"ruff": "*"}, "pypi": {"deps": {"pytest": ">=8"}}},
-        }
+@pytest.mark.parametrize(
+    ("text", "match"),
+    [
+        (
+            """
+            [workspace]
+            name = "toolchains"
+            platforms = ["linux-64"]
+
+            [zig.deps]
+            zls = "*"
+            """,
+            r"\[zig\] must have matching entries in \[deps\]",
+        ),
+        (
+            """
+            [workspace]
+            name = "toolchains"
+            platforms = ["linux-64"]
+
+            [deps]
+            nodejs = "*"
+
+            [envs.frontend.nodejs.deps]
+            vite = ">=8"
+            """,
+            r"\[nodejs\] must have matching entries in \[deps\]",
+        ),
+        (
+            """
+            [workspace]
+            name = "toolchains"
+            platforms = ["linux-64"]
+
+            [pypi.deps]
+            django = "*"
+            """,
+            r"\[pypi\] must have matching entries in \[deps\]",
+        ),
+        (
+            """
+            [workspace]
+            name = "envs"
+            platforms = ["linux-64"]
+
+            [envs.default.deps]
+            ruff = "*"
+            """,
+            r"\[envs.default\] is reserved",
+        ),
+    ],
+)
+def test_manifest_rejects_invalid_scope_tables(text: str, match: str) -> None:
+    """Scoped tables require matching runtime deps, and `default` remains reserved."""
+    with pytest.raises(ValidationError, match=match):
+        Manifest.from_toml(text)
+
+
+@given(name=toolchain_names(), deps=dep_maps())
+def test_arbitrary_toolchain_names_are_discovered_from_toml(
+    name: str, deps: dict[str, Spec]
+) -> None:
+    """A matching `[deps]` key and table is enough; no language catalog is consulted."""
+    doc = tomlkit.parse(
+        f"""
+        [workspace]
+        name = "toolchains"
+        platforms = ["linux-64"]
+
+        [deps]
+        {name} = "*"
+
+        [{name}]
+        manager = "{name}"
+        bin_dirs = ["tools/bin"]
+
+        [{name}.deps]
+        """
+    )
+    table = doc[name]["deps"]
+    for package, spec in deps.items():
+        table[package] = spec.to_toml()
+
+    manifest = Manifest.from_toml(tomlkit.dumps(doc))
+    toolchain = manifest.toolchains_for("default", "linux-64")[name]
+    assert toolchain.manager == name
+    assert toolchain.bin_dirs == ["tools/bin"]
+    assert {package: spec.version or "*" for package, spec in toolchain.deps.items()} == {
+        package: spec.version or "*" for package, spec in deps.items()
+    }
+    for package in deps:
+        assert manifest.declared("default", "linux-64")[package].source == name
+
+
+def test_toolchain_specs_merge_across_named_envs() -> None:
+    """Named env toolchain tables overlay the base runtime-keyed table."""
+    manifest = Manifest.from_toml(
+        """
+        [workspace]
+        name = "toolchains"
+        platforms = ["linux-64"]
+
+        [deps]
+        nodejs = ">=25"
+
+        [nodejs]
+        manager = "npm"
+        bin_dirs = ["custom/bin"]
+
+        [nodejs.deps]
+        svelte = ">=5"
+
+        [nodejs.dev.deps]
+        prettier = ">=3"
+
+        [envs.frontend.deps]
+        nodejs = ">=25"
+
+        [envs.frontend.nodejs]
+        manager = "pnpm"
+        bin_dirs = ["frontend/bin"]
+
+        [envs.frontend.nodejs.deps]
+        typescript = ">=6"
+
+        [envs.frontend.nodejs.dev.deps]
+        vite = ">=8"
+        """
+    )
+    toolchain = manifest.toolchains_for("frontend", "linux-64")["nodejs"]
+    assert toolchain.manager == "pnpm"
+    assert set(toolchain.deps) == {"svelte", "typescript"}
+    assert set(toolchain.dev.deps) == {"prettier", "vite"}
+    assert toolchain.bin_dirs == ["custom/bin", "frontend/bin"]
+
+
+def test_dev_conda_and_python_become_a_pixi_dev_feature() -> None:
+    """`[dev.deps]`/`[dev.python.deps]` become a dev feature for the default environment."""
+    manifest = Manifest.from_toml(
+        """
+        [workspace]
+        name = "w"
+        platforms = ["linux-64"]
+
+        [dev.deps]
+        ruff = "*"
+        python = "*"
+
+        [dev.python.deps]
+        pytest = ">=8"
+        """
     )
     pixi = PixiManifest.from_manifest(manifest)
     dev = Document.dig(pixi.feature, "dev")
     assert "ruff" in Document.dig(dev, "dependencies")
-    assert "python" in Document.dig(dev, "dependencies")  # runtime ensured for pypi dev deps
+    assert "python" in Document.dig(dev, "dependencies")
     assert "pytest" in Document.dig(dev, "pypi-dependencies")
     assert pixi.environments["default"] == {"features": ["dev"]}
 
 
 @given(dep_maps())
-def test_package_json_mirrors_npm_deps(deps: dict[str, Spec]) -> None:
-    """package.json exists iff `[npm.deps]` is non-empty, and mirrors every package version."""
-    manifest = Manifest.model_validate(
-        {"workspace": {"name": "w", "platforms": ["linux-64"]}}
-    ).model_copy(update={"npm": Npm(deps=deps)})
+def test_package_json_mirrors_nodejs_deps(deps: dict[str, Spec]) -> None:
+    """package.json exists iff `[nodejs.deps]` is non-empty, and mirrors every package version."""
+    manifest = manifest_with_nodejs_deps(deps)
     package = PackageJson.from_manifest(manifest)
     if not deps:
         assert package is None
         return
     assert package is not None
-    for name, spec in manifest.npm.deps.items():
+    for name, spec in manifest.toolchains()["nodejs"].deps.items():
         assert package.dependencies[name] == (spec.version or "*")
 
 
 def test_app_package_json_takes_workspace_name_and_passthrough() -> None:
-    """An app package.json uses the workspace name and merges `[npm.package]` verbatim."""
-    manifest = Manifest.model_validate(
-        {
-            "workspace": {"name": "site", "platforms": ["linux-64"]},
-            "npm": {
-                "app": True,
-                "deps": {"svelte": ">=5"},
-                "package": {"type": "module", "pnpm": {"onlyBuiltDependencies": ["esbuild"]}},
-            },
-        }
+    """An app package.json uses the workspace name and merges `[nodejs.package]` verbatim."""
+    manifest = Manifest.from_toml(
+        """
+        [workspace]
+        name = "site"
+        platforms = ["linux-64"]
+
+        [deps]
+        nodejs = "*"
+
+        [nodejs]
+        app = true
+
+        [nodejs.deps]
+        svelte = ">=5"
+
+        [nodejs.package]
+        type = "module"
+
+        [nodejs.package.pnpm]
+        onlyBuiltDependencies = ["esbuild"]
+        """
     )
     package = PackageJson.from_manifest(manifest)
     assert package is not None

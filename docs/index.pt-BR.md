@@ -2,7 +2,7 @@
 
 Um manifest para cada gerenciador de pacotes.
 
-Conda, PyPI, npm, cargo. Projetos reais precisam de vários ao mesmo tempo, espalhados por `pixi.toml`, `package.json` e `Cargo.toml`. O **chefe** é o chef de cozinha: você escreve **uma única receita `chefe.toml`**, ele compila cada manifest nativo dentro de `.chefe/`, executa as ferramentas reais e serve tudo como um único ambiente. Ele nunca reimplementa um solver. Ele comanda os cozinheiros.
+Conda, Python, Node.js, Rust e os toolchains que o projeto declara. Projetos reais precisam de vários ao mesmo tempo, espalhados por `pixi.toml`, `package.json` e manifests específicos de linguagem. O **chefe** é o chef de cozinha: você escreve **uma única receita `chefe.toml`**, ele compila cada manifest nativo dentro de `.chefe/`, executa as ferramentas reais e serve tudo como um único ambiente. Ele nunca reimplementa um solver. Ele comanda os cozinheiros.
 
 <div class="grid cards" markdown>
 
@@ -36,14 +36,15 @@ o chefe instala o [pixi](https://pixi.sh), o motor para o qual ele compila, na p
 [workspace]
 name = "my-project"
 
-[deps]                 # conda, the default source
+[deps]                 # conda, the default resolver
 python  = ">=3.12"
+nodejs  = ">=25"
 ripgrep = "*"
 
-[pypi.deps]
+[python.deps]
 torch = ">=2.6"
 
-[npm.deps]
+[nodejs.dev.deps]
 prettier = ">=3"
 ```
 

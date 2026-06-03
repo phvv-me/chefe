@@ -144,7 +144,7 @@ def test_pixi_exec_builds_argv(
     ]
 
 
-@pytest.mark.parametrize("manager", ["npm", "pnpm", "bun", "aube"])
+@pytest.mark.parametrize("manager", ["npm", "pnpm", "yarn", "aube"])
 def test_node_runs_the_named_manager_in_the_env_dir(
     manager: str, fp: FakeProcess, tmp_path: Path, tool_paths: dict[str, str]
 ) -> None:
@@ -230,7 +230,7 @@ def test_pixi_bootstrap_runs_the_official_installer(fp: FakeProcess, tmp_path: P
 def test_pixi_activated_puts_the_env_bin_on_path(tmp_path: Path) -> None:
     """`activated` prepends the env's bin when it exists, and leaves PATH alone when it doesn't.
 
-    This is what lets an env-installed manager (pnpm/bun/…) resolve right after `pixi install`.
+    This is what lets an env-installed manager (pnpm/yarn/…) resolve right after `pixi install`.
     """
     pixi = Pixi(tmp_path)
     env_bin = tmp_path / ".pixi" / "envs" / "default" / "bin"
@@ -246,12 +246,13 @@ def test_pixi_activated_puts_the_env_bin_on_path(tmp_path: Path) -> None:
 def test_global_install_spans_all_ecosystems(
     fp: FakeProcess, tmp_path: Path, tool_paths: dict[str, str], monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """A global install reaches every ecosystem: conda via pixi, then env pip/npm/cargo."""
+    """A global install reaches every language/toolchain: conda, then env pip/npm/cargo."""
     monkeypatch.setenv("PIXI_HOME", str(tmp_path / "pixi"))
     (tmp_path / "chefe.toml").write_text(
         '[workspace]\nname = "demo"\nplatforms = ["linux-64"]\n'
-        '[deps]\nripgrep = "*"\n[pypi.deps]\nruff = ">=0.6"\n'
-        '[npm.deps]\nprettier = ">=3"\n[cargo.deps]\nbat = "*"\n'
+        '[deps]\nripgrep = "*"\npython = "*"\nnodejs = "*"\nrust = "*"\n'
+        '[python.deps]\nruff = ">=0.6"\n'
+        '[nodejs.deps]\nprettier = ">=3"\n[rust.deps]\nbat = "*"\n'
     )
     prefix = tmp_path / "pixi" / "envs" / "demo"
     for argv0 in (

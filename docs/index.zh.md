@@ -2,13 +2,13 @@
 
 一份 manifest，搞定所有包管理器。
 
-Conda、PyPI、npm、cargo。真实的项目往往同时需要好几个，零散地分布在 `pixi.toml`、`package.json` 和 `Cargo.toml` 之间。**chefe** 就是那位主厨：你只写**一份 `chefe.toml`** 食谱，它会在 `.chefe/` 下编译出每一份原生 manifest，调用真正的工具，最后把它们摆盘成一个统一的环境。它从不重新实现求解器，它只负责指挥后厨。
+Conda、Python、Node.js、Rust，以及项目声明的 toolchain。真实的项目往往同时需要好几个，零散地分布在 `pixi.toml`、`package.json` 和各语言自己的 manifest 之间。**chefe** 就是那位主厨：你只写**一份 `chefe.toml`** 食谱，它会在 `.chefe/` 下编译出每一份原生 manifest，调用真正的工具，最后把它们摆盘成一个统一的环境。它从不重新实现求解器，它只负责指挥后厨。
 
 <div class="grid cards" markdown>
 
 - :material-silverware-variant: **一份食谱**
 
-    所有生态都写进一份 `chefe.toml`。不必再同时摆弄四份 manifest。
+    所有language/toolchain都写进一份 `chefe.toml`。不必再同时摆弄四份 manifest。
 
 - :material-cog-transfer-outline: **原生输出**
 
@@ -36,14 +36,15 @@ chefe 会在首次运行时安装它编译的目标引擎 [pixi](https://pixi.sh
 [workspace]
 name = "my-project"
 
-[deps]                 # conda, the default source
+[deps]                 # conda, the default resolver
 python  = ">=3.12"
+nodejs  = ">=25"
 ripgrep = "*"
 
-[pypi.deps]
+[python.deps]
 torch = ">=2.6"
 
-[npm.deps]
+[nodejs.dev.deps]
 prettier = ">=3"
 ```
 

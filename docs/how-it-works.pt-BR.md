@@ -7,9 +7,9 @@ flowchart TB
     subgraph recipe["uma receita (chefe.toml)"]
         direction LR
         D["[deps]<br/>conda"]
-        PY["[pypi.deps]"]
-        NP["[npm.deps]"]
-        CG["[cargo.deps]"]
+        PY["[python.deps]"]
+        NP["[nodejs.deps]"]
+        CG["[rust.deps]"]
     end
 
     subgraph compiled["chefe sync gera .chefe/"]
@@ -47,15 +47,17 @@ flowchart TB
 
 - A **estrutura** é validada pelo schema do chefe, enquanto as **especificações de pacotes** continuam sendo trabalho de cada ferramenta.
 - Editar o `chefe.toml` através do `chefe add` e do `chefe remove` preserva seus comentários e sua formatação.
-- O `pixi` (com o `uv` dentro dele) é o motor profundo para conda e PyPI, e os outros ecossistemas são camadas finas e explícitas por cima.
+- O `pixi` (com o `uv` dentro dele) é o motor profundo para conda e Python packages, e os outros linguagens/toolchains são camadas finas e explícitas por cima.
 
 ## Início rápido
 
 ```sh
 chefe init                 # scaffold a chefe.toml
-chefe add ripgrep          # add deps, use --pypi / --cargo / --npm for others
-chefe install              # provision every ecosystem at once
-chefe tree                 # what's declared vs installed, per ecosystem
+chefe add ripgrep          # conda is the default resolver
+chefe add torch -l python
+chefe add prettier -l nodejs
+chefe install              # provision every language/toolchain at once
+chefe tree                 # what's declared vs installed, per language/toolchain
 ```
 
 A seguir, a [referência do manifest](manifest.md) e a [referência de comandos](commands.md).

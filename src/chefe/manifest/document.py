@@ -6,7 +6,6 @@ import tomlkit
 from tomlkit import TOMLDocument
 from tomlkit.items import InlineTable, Table
 
-from .. import ECOSYSTEMS
 from ..base import Toml
 
 
@@ -36,15 +35,16 @@ class Document:
             node = node.get(key, {}) if isinstance(node, Mapping) else {}
         return node if isinstance(node, Mapping) else {}
 
-    @staticmethod
-    def dep_in(scope: Toml, ecosystem: str) -> bool:
-        """Whether ``scope`` has a `[<ecosystem>.deps]` table (e.g. `[pypi.deps]`)."""
-        return (
-            isinstance(scope, Mapping)
-            and ecosystem in scope
-            and isinstance(eco := scope[ecosystem], Mapping)
-            and "deps" in eco
-        )
+    @classmethod
+    def dep_tables(cls, node: Mapping[str, Toml]) -> list[Table]:
+        """Every nested `deps` table in ``node``."""
+        tables: list[Table] = []
+        for key, value in node.items():
+            if key == "deps" and isinstance(value, Table):
+                tables.append(value)
+            elif isinstance(value, Mapping):
+                tables.extend(cls.dep_tables(value))
+        return tables
 
     def save(self) -> None:
         """Write the document back to disk."""
@@ -67,15 +67,24 @@ class Document:
 
     def remove(self, packages: tuple[str, ...]) -> list[str]:
         """Drop ``packages`` from every dep table; return the names actually removed."""
-        tables: list[Table] = []
-        for scope in (self.doc, *self.doc.get("envs", {}).values()):
-            if "deps" in scope:
-                tables.append(cast(Table, scope["deps"]))
-            tables += [cast(Table, scope[e]["deps"]) for e in ECOSYSTEMS if self.dep_in(scope, e)]
-        return [p for t in tables for p in packages if t.pop(p, None) is not None]
+        tables = self.dep_tables(self.doc)
+        removed = [p for t in tables for p in packages if t.pop(p, None) is not None]
+        self.remove_source_tables(self.doc, packages)
+        return removed
+
+    def remove_source_tables(self, node: Table | TOMLDocument, packages: tuple[str, ...]) -> None:
+        """Remove runtime-keyed source tables when their runtime package is removed."""
+        targets = {self.normalize(package) for package in packages}
+        for key, value in tuple(node.items()):
+            if not isinstance(value, Table):
+                continue
+            if self.normalize(key) in targets and "deps" in value:
+                node.pop(key, None)
+            else:
+                self.remove_source_tables(value, packages)
 
     def pull(self, pixi_doc: Mapping[str, Toml]) -> None:
-        """Fold pixi's resolved conda + pypi deps from a `pixi.toml` dict back into the manifest.
+        """Fold pixi's resolved conda + Python deps from a `pixi.toml` dict back into the manifest.
 
         Walks the base scope, each env (feature) and each platform (target), bumping declared
         versions and adding what pixi added, while keeping comments and index aliases intact.
@@ -86,7 +95,7 @@ class Document:
         for at, dest in scopes:
             for source, sub in (
                 ("dependencies", ["deps"]),
-                ("pypi-dependencies", ["pypi", "deps"]),
+                ("pypi-dependencies", ["python", "deps"]),
             ):
                 resolved = self.dig(pixi_doc, *at, source)
                 if resolved:

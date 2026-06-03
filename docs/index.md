@@ -2,13 +2,13 @@
 
 One manifest for every package manager.
 
-Conda, PyPI, npm, cargo. Real projects need several at once, scattered across `pixi.toml`, `package.json`, and `Cargo.toml`. **chefe** is the head chef: you write **one `chefe.toml`** recipe, it compiles each native manifest under `.chefe/`, runs the real tools, and plates them as a single environment. It never re-implements a solver. It runs the cooks.
+Conda, Python, Node.js, Rust, and whatever toolchains your project declares. Real projects need several at once, scattered across `pixi.toml`, `package.json`, and language-specific manifests. **chefe** is the head chef: you write **one `chefe.toml`** recipe, it compiles each native manifest under `.chefe/`, runs the real tools, and plates them as a single environment. It never re-implements a solver. It runs the cooks.
 
 <div class="grid cards" markdown>
 
 - :material-silverware-variant: **One recipe**
 
-    Every ecosystem in a single `chefe.toml`. No more juggling four manifests.
+    Every language/toolchain in a single `chefe.toml`. No more juggling four manifests.
 
 - :material-cog-transfer-outline: **Native output**
 
@@ -36,14 +36,15 @@ chefe installs [pixi](https://pixi.sh), the engine it compiles to, on first run,
 [workspace]
 name = "my-project"
 
-[deps]                 # conda, the default source
+[deps]                 # conda, the default resolver
 python  = ">=3.12"
+nodejs  = ">=25"
 ripgrep = "*"
 
-[pypi.deps]
+[python.deps]
 torch = ">=2.6"
 
-[npm.deps]
+[nodejs.dev.deps]
 prettier = ">=3"
 ```
 

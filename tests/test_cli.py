@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 import functools
+from pathlib import Path
 
 import pytest
 
 from chefe.cli import build
 from chefe.manager import PackageManager
+
+from .conftest import write_manifest
 
 # Each CLI argv and the manager method it must delegate to (cli.py is pure wiring).
 COMMANDS = [
@@ -18,7 +21,7 @@ COMMANDS = [
     (["x", "ruff", "check", "."], "x"),
     (["shell"], "shell"),
     (["tree"], "tree"),
-    (["add", "numpy", "--pypi"], "add"),
+    (["add", "numpy", "-l", "python"], "add"),
     (["upgrade", "numpy"], "upgrade"),
     (["remove", "numpy"], "remove"),
     (["global", "install", "shared"], "global_install"),
@@ -56,3 +59,19 @@ def test_cli_delegates_to_manager(argv: list[str], method: str) -> None:
         app(argv)
     assert exit_info.value.code in (0, None)
     assert seen == [method]
+
+
+def test_cli_prints_chefe_errors(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    """User mistakes are shown as concise CLI errors, not Python tracebacks."""
+    write_manifest(
+        tmp_path,
+        """
+        [deps]
+        python = "*"
+        """,
+    )
+    app = build(PackageManager(tmp_path))
+    with pytest.raises(SystemExit) as exit_info:
+        app(["add", "ripgrep", "-l", "rust"])
+    assert exit_info.value.code == 1
+    assert "Language `rust` is not declared in [deps]" in capsys.readouterr().out

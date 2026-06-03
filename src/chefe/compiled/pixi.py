@@ -30,7 +30,7 @@ class PixiManifest(Model):
         """Translate a mise-style task into pixi's (`run` -> `cmd`, `depends` -> `depends-on`).
 
         Tasks run from the repo root, which is one directory up from the generated `.chefe/`,
-        so repo-relative commands (`python -m pkg`, `node_modules/.bin/x`) resolve as written.
+        so repo-relative commands (`python -m pkg`) resolve as written.
         """
         out: dict[str, Toml] = {}
         if isinstance(spec, str):
@@ -44,7 +44,8 @@ class PixiManifest(Model):
     @classmethod
     def from_manifest(cls, m: Manifest) -> PixiManifest:
         """Build the pixi manifest from a validated :class:`Manifest`."""
-        indexes = m.pypi.indexes
+        python = m.python()
+        indexes = python.indexes
         variables = {k: v for k, v in m.env.items() if not k.startswith("_.")}
         # the manifest is emitted under `.chefe/`, so a repo-root script path
         # resolves one directory up from where pixi runs it
@@ -61,8 +62,8 @@ class PixiManifest(Model):
             }
             for name, env in m.envs.items()
         }
-        # `[dev.*]` conda + pypi deps become a `dev` feature added to the default environment, so
-        # `chefe install` provisions dev tooling beside the runtime deps (npm/cargo dev elsewhere).
+        # `[dev.*]` deps become a `dev` feature added to the default environment, so
+        # `chefe install` provisions dev tooling beside the runtime deps.
         if dev := cls.dev_feature(m, indexes):
             feature["dev"] = dev
             environments["default"] = {"features": ["dev"]}
@@ -77,7 +78,7 @@ class PixiManifest(Model):
                 "system-requirements": m.system,
                 "activation": activation,
                 **m.tables(indexes),
-                "pypi-options": m.pypi.options(),
+                "pypi-options": python.options(),
                 "target": {plat: scope.tables(indexes) for plat, scope in m.on.items()},
                 "feature": feature,
                 "environments": environments,
@@ -87,15 +88,15 @@ class PixiManifest(Model):
 
     @staticmethod
     def dev_feature(m: Manifest, indexes: dict[str, str]) -> dict[str, Toml]:
-        """The `[dev.*]` conda + pypi deps as a pixi feature; npm/cargo dev compile elsewhere."""
+        """The `[dev.*]` conda + Python deps as a pixi feature."""
         deps = dict(m.dev.deps)
-        if m.dev.pypi.deps:
-            deps.setdefault("python", Spec(version="*"))
+        python = m.dev.toolchains().get("python")
         feature: dict[str, Toml] = {}
         if deps:
             feature["dependencies"] = {name: spec.to_toml() for name, spec in deps.items()}
-        if m.dev.pypi.deps:
+        if python and python.all_deps():
             feature["pypi-dependencies"] = {
-                name: spec.with_index(indexes).to_toml() for name, spec in m.dev.pypi.deps.items()
+                name: spec.with_index(indexes).to_toml()
+                for name, spec in python.all_deps().items()
             }
         return feature

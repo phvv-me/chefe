@@ -1,17 +1,24 @@
+import os
 import shutil
+import tomllib
 from collections import Counter
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Annotated
 
 import tomlkit
 from cyclopts import Parameter
+from plumbum import local
+from pydantic import ValidationError
 from rich.console import Console
 from rich.markup import escape
 from rich.table import Table
 
-from . import ECOSYSTEMS, ENV_DIR, MANIFEST, NAME, PIXI_RESOLVED
+from . import ENV_DIR, MANIFEST, NAME, PIXI_RESOLVED
 from .backends import Cargo, Node, Pixi
 from .compiled import PackageJson, PixiManifest
+from .errors import ChefeError, ManifestValidationMessage
 from .manifest import Document, Manifest, Spec
 from .state import Declared
 from .utils import current_platform, satisfied
@@ -30,21 +37,44 @@ class PackageManager:
 
     def load(self) -> Manifest:
         """The validated manifest."""
-        return Manifest.load(self.manifest)
+        if not self.manifest.exists():
+            raise ChefeError(
+                f"{self.manifest.name} not found. "
+                "Run `chefe init` first, or run chefe from a workspace root."
+            )
+        try:
+            return Manifest.load(self.manifest)
+        except tomllib.TOMLDecodeError as error:
+            raise ChefeError(f"{self.manifest.name} has invalid TOML: {error}") from error
+        except ValidationError as error:
+            raise ChefeError(ManifestValidationMessage(self.manifest, error).text()) from error
 
     def node(self, manifest: Manifest) -> Node:
-        """The JS backend for this manifest: the `[npm] manager` binary in its install dir.
-
-        Tooling installs into the generated `.chefe/` env; an application (`[npm] app`) installs
-        at the project root, where Vite resolves `node_modules`. Either way the backend just runs
-        the named binary there, so any package manager works without code here.
-        """
-        directory = self.root if manifest.npm.app else self.out
-        return Node(directory, manifest.npm.manager)
+        """The Node.js backend for this manifest: manager binary plus install dir."""
+        nodejs = manifest.toolchains().get("nodejs")
+        app = nodejs.app if nodejs is not None else False
+        manager = nodejs.manager if nodejs is not None and nodejs.manager else "npm"
+        directory = self.root if app else self.out
+        return Node(directory, manager)
 
     def declared(self, env: str) -> dict[str, Declared]:
         """Every dep declared for ``env`` on this host."""
         return self.load().declared(env, current_platform())
+
+    @contextmanager
+    def activated(self, env: str = "default") -> Iterator[None]:
+        """Expose managed ecosystem executables on PATH for commands and shells."""
+        with self.pixi.activated(env):
+            manifest = self.load()
+            toolchains = manifest.toolchains_for(env, current_platform())
+            binary_dirs = [
+                self.node(manifest).binary_dir(),
+                *[self.out / path for spec in toolchains.values() for path in spec.bin_dirs],
+            ]
+            path = local.env["PATH"]
+            prefix = os.pathsep.join(str(path) for path in binary_dirs if path.is_dir())
+            with local.env(PATH=f"{prefix}{os.pathsep}{path}" if prefix else path):
+                yield
 
     def init(self, name: str = "") -> None:
         """Scaffold a starter manifest."""
@@ -71,12 +101,12 @@ class PackageManager:
         self.console.print(f"[green]synced[/green] {self.manifest.name} → {self.out.name}/")
 
     def install(self, env: str = "default") -> None:
-        """Sync, then make ``env`` match the manifest across every ecosystem."""
+        """Sync, then make ``env`` match the manifest across every language/toolchain."""
         self.sync()
         self.pixi("install", "-e", env)
-        with self.pixi.activated(env):
+        with self.activated(env):
             self.node(self.load())("install")
-        crates = {n: d.spec for n, d in self.declared(env).items() if d.source == "cargo"}
+        crates = self.rust_deps(env)
         self.cargo.sync(env, crates)
         self.console.print(f"[green]installed[/green] env [bold]{escape(env)}[/bold]")
 
@@ -84,9 +114,17 @@ class PackageManager:
         """Re-solve to the newest allowed versions across ecosystems."""
         self.sync()
         self.pixi("update", "-e", env)
-        with self.pixi.activated(env):
+        with self.activated(env):
             self.node(self.load())("update")
         self.console.print(f"[green]updated[/green] env [bold]{escape(env)}[/bold]")
+
+    def rust_deps(self, env: str) -> dict[str, str]:
+        """Cargo-installable crates declared by `[rust]`."""
+        manifest = self.load()
+        rust = manifest.toolchains_for(env, current_platform()).get("rust")
+        return {
+            name: spec.version or "*" for name, spec in (rust.all_deps() if rust else {}).items()
+        }
 
     def clean(self) -> None:
         """Remove the generated env and manifests."""
@@ -94,11 +132,10 @@ class PackageManager:
         self.console.print(f"[green]removed[/green] {self.out.name}/")
 
     def global_install(self, name: str = "") -> None:
-        """Install every ecosystem's declared deps into one shared global pixi env.
+        """Install every language/toolchain's declared deps into one shared global pixi env.
 
-        conda goes through `pixi global`; the runtimes it pulls in (python/node/rust)
-        then install the pypi/npm/cargo deps with that env's own pip/npm/cargo — so a
-        global install reaches parity with `chefe install`, no uv involved.
+        Conda goes through `pixi global`; adapters then use binaries from that global env for
+        languages that need a second install step, such as Python, Node.js, and Rust.
         """
         manifest = self.load()
         name = name or manifest.workspace.name
@@ -106,37 +143,29 @@ class PackageManager:
         def spec(pkg: str, dep: Spec) -> str:
             return pkg if dep.version in (None, "*") else f"{pkg}{dep.version}"
 
+        toolchains = manifest.toolchains()
         conda = dict(manifest.deps)
-        for runtime, deps in (
-            ("python", manifest.pypi.deps),
-            ("nodejs", manifest.npm.deps),
-            ("rust", manifest.cargo.deps),
-        ):
-            if deps:
-                conda.setdefault(runtime, Spec())
         self.pixi.global_install(name, [spec(pkg, dep) for pkg, dep in conda.items()])
 
         prefix = self.pixi.global_prefix(name)
-        if manifest.pypi.deps:
-            self.pixi.global_pip(prefix, [spec(p, d) for p, d in manifest.pypi.deps.items()])
-        if manifest.npm.deps:
+        if (python := toolchains.get("python")) and python.all_deps():
+            self.pixi.global_pip(prefix, [spec(p, d) for p, d in python.all_deps().items()])
+        if (nodejs := toolchains.get("nodejs")) and nodejs.all_deps():
             self.pixi.global_npm(
                 prefix,
                 [
                     p if d.version in (None, "*") else f"{p}@{d.version}"
-                    for p, d in manifest.npm.deps.items()
+                    for p, d in nodejs.all_deps().items()
                 ],
             )
-        if manifest.cargo.deps:
-            self.pixi.global_cargo(prefix, list(manifest.cargo.deps))
+        if (rust := toolchains.get("rust")) and rust.all_deps():
+            self.pixi.global_cargo(prefix, list(rust.all_deps()))
 
         total = sum(
             len(group)
             for group in (
                 manifest.deps,
-                manifest.pypi.deps,
-                manifest.npm.deps,
-                manifest.cargo.deps,
+                *(toolchain.all_deps() for toolchain in toolchains.values()),
             )
         )
         self.console.print(
@@ -144,8 +173,9 @@ class PackageManager:
         )
 
     def run(self, task: str, *args: Annotated[str, Parameter(allow_leading_hyphen=True)]) -> None:
-        """Run a task inside the env."""
-        self.pixi("run", task, *args)
+        """Run a task or installed executable inside the env."""
+        with self.activated():
+            self.pixi("run", task, *args)
 
     def x(
         self,
@@ -161,28 +191,36 @@ class PackageManager:
 
     def shell(self, env: str = "default") -> None:
         """Open an activated shell in ``env``."""
-        self.pixi("shell", "-e", env)
+        with self.activated(env):
+            self.pixi("shell", "-e", env)
 
     def add(
         self,
         *packages: str,
-        pypi: bool = False,
-        cargo: bool = False,
-        npm: bool = False,
-        gem: bool = False,
+        language: Annotated[
+            str,
+            Parameter(
+                name=("--language", "-l"),
+                help="conda, python, or any runtime/toolchain declared in [deps].",
+            ),
+        ] = "conda",
         env: str = "",
         spec: str = "*",
     ) -> None:
-        """Add packages to the manifest, then sync; conda + pypi resolve through pixi.
+        """Add packages to the manifest, then sync; conda + Python resolve through pixi.
 
-        Conda is the default source; `--pypi`/`--cargo`/`--npm`/`--gem` pick another.
+        `language`: `conda`, `python`, or any runtime declared in `[deps]`.
         """
-        source = next(
-            (s for s, on in zip(ECOSYSTEMS, (pypi, cargo, npm, gem), strict=True) if on), "conda"
-        )
+        if not packages:
+            raise ChefeError("No packages given. Usage: `chefe add <package> [-l language]`.")
+        manifest = self.load()
+        source = self.source_for_language(language)
+        self.require_language(manifest, language, source, env)
         if source in PIXI_RESOLVED:
             self.sync()
-            self.pixi("add", *packages, pypi=source == "pypi", feature=env)
+            self.pixi(
+                "add", *self.package_specs(packages, spec), pypi=source == "python", feature=env
+            )
             self.pull()
         else:
             document = Document(self.manifest)
@@ -191,13 +229,42 @@ class PackageManager:
             self.sync()
         self.console.print(f"[green]added[/green] {escape(', '.join(packages))}")
 
+    @staticmethod
+    def package_specs(packages: tuple[str, ...], spec: str) -> tuple[str, ...]:
+        """Package args with a shared version spec, in the form Pixi expects."""
+        return packages if spec in ("", "*") else tuple(f"{package}{spec}" for package in packages)
+
+    @staticmethod
+    def source_for_language(language: str) -> str:
+        """Map user-facing language names to internal dependency source tables."""
+        if not language:
+            raise ChefeError("Language cannot be empty. Omit it for conda, or use `-l python`.")
+        return language
+
+    def require_language(self, manifest: Manifest, language: str, source: str, env: str) -> None:
+        """Validate that a non-Pixi language is declared before writing its package table."""
+        if source == "conda":
+            return
+        scope = manifest if not env else manifest.envs.get(env)
+        table = "[deps]" if not env else f"[envs.{env}.deps]"
+        if scope is None:
+            raise ChefeError(
+                f"Environment `{env}` does not exist. "
+                f'Declare `{source} = "*"` under {table} before using `-l {language}`.'
+            )
+        if source not in scope.deps:
+            raise ChefeError(
+                f"Language `{language}` is not declared in {table}. "
+                f'Add `{source} = "*"` there before using `-l {language}`.'
+            )
+
     def upgrade(self, *packages: str, env: str = "") -> None:
-        """Bump conda + pypi constraints to the latest allowed, then sync in."""
+        """Bump conda + Python constraints to the latest allowed, then sync in."""
         self.sync()
         self.pixi("upgrade", *packages, feature=env)
         self.pull()
         self.console.print(
-            f"[green]upgraded[/green] {escape(', '.join(packages) or 'all conda + pypi deps')}"
+            f"[green]upgraded[/green] {escape(', '.join(packages) or 'all conda + Python deps')}"
         )
 
     def remove(self, *packages: str) -> None:
@@ -228,24 +295,33 @@ class PackageManager:
         """Show declared vs installed deps, each checked in its own ecosystem."""
         declared = self.declared(env)
         provisioned = self.pixi.installed(env)
+        node_installed = {
+            n: inst.version for n, inst in self.node(self.load()).installed(env).items()
+        }
+        cargo_installed = {name: inst.version for name, inst in self.cargo.installed(env).items()}
         by_source: dict[str, dict[str, str]] = {
-            "npm": {n: inst.version for n, inst in self.node(self.load()).installed(env).items()},
-            "cargo": {name: inst.version for name, inst in self.cargo.installed(env).items()},
+            "nodejs": node_installed,
+            "rust": cargo_installed,
         }
         for name, inst in provisioned.items():
             by_source.setdefault(inst.kind, {})[name] = inst.version
         table = Table(title=f"{NAME} · {env} · declared vs installed", header_style="bold cyan")
-        for column in ("package", "source", "declared", "installed", ""):
+        for column in ("package", "language", "declared", "installed", ""):
             table.add_column(column)
         tally: Counter[str] = Counter()
         for name, dep in sorted(declared.items()):
             installed = by_source.get(dep.source, {}).get(name)
             mark, shown, bucket = self.row_status(dep.spec, installed)
             tally[bucket] += 1
-            table.add_row(name, dep.source, dep.spec, shown, mark)
+            table.add_row(name, self.language_for_source(dep.source), dep.spec, shown, mark)
         self.console.print(table)
         transitive = sum(1 for inst in provisioned.values() if not inst.explicit)
         self.console.print(
             f"[green]{tally['ok']} ok[/green] · [yellow]{tally['drift']} drift[/yellow] · "
             f"[red]{tally['missing']} missing[/red] · [dim]{transitive} transitive installed[/dim]"
         )
+
+    @staticmethod
+    def language_for_source(source: str) -> str:
+        """Map internal dependency source tables to user-facing language names."""
+        return source

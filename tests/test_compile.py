@@ -1,13 +1,11 @@
 from __future__ import annotations
 
-import tomllib
-
 import pytest
 
 from chefe.compiled import PackageJson, PixiManifest
 from chefe.manifest import Manifest
 
-# A rich manifest that touches every compiler path: conda + pypi (indexed) + npm + cargo,
+# A rich manifest that touches every compiler path: conda + Python, runtime-keyed toolchains,
 # a platform overlay, a no-default env, system requirements, env vars, and a table task.
 FULL = """
 [workspace]
@@ -25,22 +23,39 @@ LOG_LEVEL = "info"
 [deps]
 python = ">=3.11"
 ripgrep = "*"
+nodejs = "*"
+rust = "*"
+zig = ">=0.14"
+c-compiler = "*"
+cxx-compiler = "*"
 
-[pypi]
+[python]
 index-strategy = "unsafe-best-match"
 
-[pypi.indexes]
+[python.indexes]
 pytorch = "https://download.pytorch.org/whl/cu124"
 
-[pypi.deps]
+[python.deps]
 torch = { version = ">=2.6", index = "pytorch" }
 ruff = ">=0.6"
 
-[npm.deps]
+[nodejs.deps]
 prettier = ">=3"
 
-[cargo.deps]
+[rust.deps]
 ripgrep = "*"
+
+[zig]
+manager = "zig"
+
+[c-compiler]
+manager = "clang"
+
+[cxx-compiler]
+manager = "conan"
+
+[cxx-compiler.deps]
+fmt = ">=11"
 
 [on.linux.deps]
 cupy = ">=13"
@@ -52,7 +67,10 @@ platforms = ["linux-64"]
 [envs.serving.system]
 cuda = "12.0"
 
-[envs.serving.pypi.deps]
+[envs.serving.deps]
+python = "*"
+
+[envs.serving.python.deps]
 vllm = ">=0.6"
 
 [tasks]
@@ -73,7 +91,7 @@ python = ">=3.11"
 
 @pytest.fixture(params=[FULL, MINIMAL], ids=["full", "minimal"])
 def manifest(request: pytest.FixtureRequest) -> Manifest:
-    return Manifest.model_validate(tomllib.loads(request.param))
+    return Manifest.from_toml(request.param)
 
 
 def test_pixi_toml_snapshot(manifest: Manifest, snapshot) -> None:  # noqa: ANN001
@@ -91,20 +109,18 @@ def test_package_json_snapshot(manifest: Manifest, snapshot) -> None:  # noqa: A
 def test_activation_scripts_resolve_from_the_chefe_dir() -> None:
     """A repo-root activation script is rewritten one level up (the manifest lives in `.chefe/`);
     an absolute path rides through untouched."""
-    manifest = Manifest.model_validate(
-        tomllib.loads(
-            """
-[workspace]
-name = "demo"
-platforms = ["linux-64"]
+    manifest = Manifest.from_toml(
+        """
+        [workspace]
+        name = "demo"
+        platforms = ["linux-64"]
 
-[activation]
-scripts = ["scripts/activate.sh", "/opt/hook.sh"]
+        [activation]
+        scripts = ["scripts/activate.sh", "/opt/hook.sh"]
 
-[deps]
-python = ">=3.11"
-"""
-        )
+        [deps]
+        python = ">=3.11"
+        """
     )
     pixi = PixiManifest.from_manifest(manifest)
     assert pixi.activation["scripts"] == ["../scripts/activate.sh", "/opt/hook.sh"]

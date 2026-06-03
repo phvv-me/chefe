@@ -7,6 +7,5 @@ NAME = __name__
 MANIFEST = f"{NAME}.toml"
 ENV_DIR = f".{NAME}"
 
-# Domain constants: the non-conda ecosystems, and the sources pixi resolves itself.
-ECOSYSTEMS = ("pypi", "cargo", "npm", "gem")
-PIXI_RESOLVED = ("conda", "pypi")
+# Pixi resolves conda directly; Python packages use Pixi's private Python adapter.
+PIXI_RESOLVED = ("conda", "python")

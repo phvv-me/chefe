@@ -2,13 +2,13 @@
 
 すべてのパッケージマネージャーを一つのマニフェストで。
 
-Conda、PyPI、npm、cargo。実際のプロジェクトでは複数を同時に必要とし、それらは `pixi.toml`、`package.json`、`Cargo.toml` に散在します。**chefe** はヘッドシェフです。**一つの `chefe.toml`** レシピを書けば、各ネイティブマニフェストを `.chefe/` 配下にコンパイルし、本物のツールを実行し、単一の環境として盛り付けます。ソルバーを再実装することは決してありません。コックたちを動かすのです。
+Conda、Python、Node.js、Rust、そしてプロジェクトが宣言する toolchain。実際のプロジェクトでは複数を同時に必要とし、それらは `pixi.toml`、`package.json`、言語ごとの manifest に散在します。**chefe** はヘッドシェフです。**一つの `chefe.toml`** レシピを書けば、各ネイティブマニフェストを `.chefe/` 配下にコンパイルし、本物のツールを実行し、単一の環境として盛り付けます。ソルバーを再実装することは決してありません。コックたちを動かすのです。
 
 <div class="grid cards" markdown>
 
 - :material-silverware-variant: **一つのレシピ**
 
-    すべてのエコシステムを単一の `chefe.toml` に。もう四つのマニフェストをやりくりする必要はありません。
+    すべてのlanguage/toolchainを単一の `chefe.toml` に。もう四つのマニフェストをやりくりする必要はありません。
 
 - :material-cog-transfer-outline: **ネイティブな出力**
 
@@ -36,14 +36,15 @@ chefe は初回実行時に、コンパイル先のエンジンである [pixi](
 [workspace]
 name = "my-project"
 
-[deps]                 # conda, the default source
+[deps]                 # conda, the default resolver
 python  = ">=3.12"
+nodejs  = ">=25"
 ripgrep = "*"
 
-[pypi.deps]
+[python.deps]
 torch = ">=2.6"
 
-[npm.deps]
+[nodejs.dev.deps]
 prettier = ">=3"
 ```
 
