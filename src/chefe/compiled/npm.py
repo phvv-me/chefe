@@ -21,13 +21,20 @@ class PackageJson(FlexModel):
 
     @classmethod
     def from_manifest(cls, m: Manifest) -> PackageJson | None:
-        """Build package.json from ``[npm.deps]``, or None if there are none.
+        """Build package.json from the npm deps (runtime + dev), or None when there are none.
 
         An application (``[npm] app``) takes the workspace name and merges ``[npm.package]``;
         tooling keeps the ``-npm`` suffix so a generated env file never shadows a real package.
+        ``[dev.npm.deps]`` becomes ``devDependencies``, emitted only when present so a manifest
+        without dev deps compiles to the exact same file as before.
         """
-        if not m.npm.deps:
+        if not m.npm.deps and not m.dev.npm.deps:
             return None
         name = m.workspace.name if m.npm.app else f"{m.workspace.name}-npm"
         dependencies = {package: spec.version or "*" for package, spec in m.npm.deps.items()}
-        return cls(name=name, dependencies=dependencies, **m.npm.package)
+        fields = dict(m.npm.package)
+        if m.dev.npm.deps:
+            fields["devDependencies"] = {
+                pkg: s.version or "*" for pkg, s in m.dev.npm.deps.items()
+            }
+        return cls(name=name, dependencies=dependencies, **fields)

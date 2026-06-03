@@ -109,6 +109,27 @@ pnpm = { onlyBuiltDependencies = ["esbuild", "workerd"] }
 パッケージマネージャー独自の設定までです。ファイルは chefe が書き出すので、編集するのは `chefe.toml`
 だけで済み、生成された `package.json` は gitignore できるビルド成果物です。
 
+## 開発依存関係
+
+`[dev.*]` はベーススコープを反映し、ビルドやテストには必要だが実行には不要なツールをまとめます。
+各グループはそのエコシステム独自の開発用の仕組みにコンパイルされ、`chefe install` は既定でそれらを
+用意します。
+
+```toml
+[dev.deps]            # conda の開発ツール
+ruff = "*"
+
+[dev.pypi.deps]       # pypi の開発ツール
+pytest = ">=8"
+
+[dev.npm.deps]        # -> package.json の devDependencies
+vite = ">=8"
+```
+
+`[dev.npm.deps]` は `devDependencies` に入り、`[dev.deps]` と `[dev.pypi.deps]` は既定の環境に
+追加される `dev` フィーチャーになります。そのため、リンターやテストランナーが実行用の依存関係と
+並んでインストールされます。これは独自の解決を持つ別環境である `[envs.dev]` よりも軽量です。
+
 ## システム要件
 
 クロスプラットフォーム解決に使われる conda の仮想パッケージの下限であり、module-load ではありません。

@@ -109,6 +109,28 @@ espere passa sem alterações, de `type` e `engines` até os ajustes próprios d
 única coisa que você edita e um `package.json` gerado é um artefato de build que pode ir para o
 gitignore.
 
+## Dependências de desenvolvimento
+
+`[dev.*]` espelha o scope base para ferramentas de que você precisa para construir e testar, mas não
+para executar. Cada grupo compila para o mecanismo de desenvolvimento próprio do seu ecossistema, e
+o `chefe install` as provisiona por padrão.
+
+```toml
+[dev.deps]            # ferramentas de desenvolvimento conda
+ruff = "*"
+
+[dev.pypi.deps]       # ferramentas de desenvolvimento pypi
+pytest = ">=8"
+
+[dev.npm.deps]        # -> devDependencies do package.json
+vite = ">=8"
+```
+
+`[dev.npm.deps]` vai para `devDependencies`, enquanto `[dev.deps]` e `[dev.pypi.deps]` viram uma
+feature `dev` adicionada ao ambiente padrão, então seus linters e seu executor de testes são
+instalados ao lado das dependências de execução. Isso é mais leve que um `[envs.dev]` completo, que é
+um ambiente separado com a sua própria resolução.
+
 ## Requisitos de sistema
 
 O piso de pacotes virtuais do conda usado para a resolução multiplataforma, não um carregamento de módulo.

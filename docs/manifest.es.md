@@ -109,6 +109,28 @@ espere pasa sin cambios, desde `type` y `engines` hasta los ajustes propios de u
 `onlyBuiltDependencies` de pnpm. chefe escribe el archivo, así que `chefe.toml` sigue siendo lo
 único que editas y un `package.json` generado es un artefacto de build que puedes ignorar en git.
 
+## Dependencias de desarrollo
+
+`[dev.*]` refleja el scope base para herramientas que necesitas para construir y probar pero no
+para ejecutar. Cada grupo compila al mecanismo de desarrollo propio de su ecosistema, y
+`chefe install` las provisiona por defecto.
+
+```toml
+[dev.deps]            # herramientas de desarrollo conda
+ruff = "*"
+
+[dev.pypi.deps]       # herramientas de desarrollo pypi
+pytest = ">=8"
+
+[dev.npm.deps]        # -> devDependencies de package.json
+vite = ">=8"
+```
+
+`[dev.npm.deps]` va a `devDependencies`, mientras que `[dev.deps]` y `[dev.pypi.deps]` se convierten
+en una feature `dev` añadida al entorno por defecto, así que tus linters y tu corredor de pruebas se
+instalan junto a las dependencias de ejecución. Esto es más ligero que un `[envs.dev]` completo, que
+es un entorno separado con su propia resolución.
+
 ## Requisitos del sistema
 
 El piso de paquetes virtuales de conda usado para la resolución multiplataforma, no una carga de módulo.

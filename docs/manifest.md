@@ -108,6 +108,27 @@ from `type` and `engines` to a package manager's own settings such as pnpm's
 `onlyBuiltDependencies`. chefe writes the file, so `chefe.toml` stays the one thing you edit and a
 generated `package.json` is a build artifact you can gitignore.
 
+## Dev dependencies
+
+`[dev.*]` mirrors the base scope for tools you need to build and test but not to run. Each group
+compiles to its ecosystem's own dev mechanism, and `chefe install` provisions them by default.
+
+```toml
+[dev.deps]            # conda dev tools
+ruff = "*"
+
+[dev.pypi.deps]       # pypi dev tools
+pytest = ">=8"
+
+[dev.npm.deps]        # -> package.json devDependencies
+vite = ">=8"
+```
+
+`[dev.npm.deps]` lands in `devDependencies`, while `[dev.deps]` and `[dev.pypi.deps]` become a
+`dev` feature added to the default environment, so your linters and test runner install beside the
+runtime deps. This is lighter than a full `[envs.dev]`, which is a separate environment with its
+own solve.
+
 ## System requirements
 
 The conda virtual-package floor used for cross-platform solving, not a module-load.

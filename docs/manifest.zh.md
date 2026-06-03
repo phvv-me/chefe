@@ -105,6 +105,26 @@ pnpm = { onlyBuiltDependencies = ["esbuild", "workerd"] }
 `engines` 到 pnpm 的 `onlyBuiltDependencies` 这类包管理器自有设置。文件由 chefe 写出，所以你只需
 编辑 `chefe.toml`，而生成的 `package.json` 是可加入 gitignore 的构建产物。
 
+## 开发依赖
+
+`[dev.*]` 镜像基础 scope，用于构建和测试需要、但运行时不需要的工具。每个分组都会编译到其生态自有的
+开发机制，`chefe install` 默认就会安装它们。
+
+```toml
+[dev.deps]            # conda 开发工具
+ruff = "*"
+
+[dev.pypi.deps]       # pypi 开发工具
+pytest = ">=8"
+
+[dev.npm.deps]        # -> package.json 的 devDependencies
+vite = ">=8"
+```
+
+`[dev.npm.deps]` 进入 `devDependencies`，而 `[dev.deps]` 和 `[dev.pypi.deps]` 会成为加入默认环境的
+`dev` feature，因此你的 linter 和测试运行器会与运行时依赖一起安装。这比完整的 `[envs.dev]` 更轻量，
+后者是一个有自己求解过程的独立环境。
+
 ## 系统要求
 
 用于跨平台求解的 conda 虚拟包下限，而非模块加载（module-load）。

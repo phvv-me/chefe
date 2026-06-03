@@ -185,6 +185,8 @@ class Manifest(Scope):
     workspace: Header
     system: dict[str, str] = {}  # [system]  → pixi [system-requirements]
     on: dict[str, Scope] = {}  # [on.<platform>]  → pixi [target.*]
+    # [dev.*] → npm devDependencies + a pixi `dev` feature in the default environment
+    dev: Scope = Scope()
     envs: dict[str, Env] = {}  # [envs.<name>]    → pixi [feature]+[environments]
     env: dict[str, str] = {}  # env vars
     activation: Activation = Activation()  # [activation] scripts

@@ -141,6 +141,48 @@ def test_npm_manager_is_a_free_name_defaulting_to_npm() -> None:
     assert default_pkg.to_json() == picked_pkg.to_json()
 
 
+def test_dev_npm_deps_become_dev_dependencies() -> None:
+    """`[dev.npm.deps]` compile to devDependencies; runtime deps stay in dependencies."""
+    manifest = Manifest.model_validate(
+        {
+            "workspace": {"name": "app", "platforms": ["linux-64"]},
+            "npm": {"app": True, "deps": {"svelte": ">=5"}},
+            "dev": {"npm": {"deps": {"vite": ">=8"}}},
+        }
+    )
+    package = PackageJson.from_manifest(manifest)
+    assert package is not None
+    data = json.loads(package.to_json())
+    assert data["dependencies"] == {"svelte": ">=5"}
+    assert data["devDependencies"] == {"vite": ">=8"}
+
+
+def test_no_dev_npm_omits_dev_dependencies() -> None:
+    """Without `[dev.npm.deps]`, package.json has no devDependencies key (compiles as before)."""
+    manifest = Manifest.model_validate(
+        {"workspace": {"name": "w", "platforms": ["linux-64"]}, "npm": {"deps": {"svelte": ">=5"}}}
+    )
+    package = PackageJson.from_manifest(manifest)
+    assert package is not None
+    assert "devDependencies" not in json.loads(package.to_json())
+
+
+def test_dev_conda_and_pypi_become_a_pixi_dev_feature() -> None:
+    """`[dev.deps]`/`[dev.pypi.deps]` become a `dev` feature added to the default environment."""
+    manifest = Manifest.model_validate(
+        {
+            "workspace": {"name": "w", "platforms": ["linux-64"]},
+            "dev": {"deps": {"ruff": "*"}, "pypi": {"deps": {"pytest": ">=8"}}},
+        }
+    )
+    pixi = PixiManifest.from_manifest(manifest)
+    dev = Document.dig(pixi.feature, "dev")
+    assert "ruff" in Document.dig(dev, "dependencies")
+    assert "python" in Document.dig(dev, "dependencies")  # runtime ensured for pypi dev deps
+    assert "pytest" in Document.dig(dev, "pypi-dependencies")
+    assert pixi.environments["default"] == {"features": ["dev"]}
+
+
 @given(dep_maps())
 def test_package_json_mirrors_npm_deps(deps: dict[str, Spec]) -> None:
     """package.json exists iff `[npm.deps]` is non-empty, and mirrors every package version."""

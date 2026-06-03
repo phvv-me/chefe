@@ -27,6 +27,9 @@ Make chefe complete and trustworthy across every ecosystem it advertises.
 - [x] **Swappable JavaScript backends.** `[npm] manager` names any package-manager binary
   (npm by default, or pnpm, bun, aube, yarn, …) and chefe runs it in the env dir, so a new tool
   needs no code, only its name. Generalizing the same choice to other ecosystems is still ahead.
+- [x] **Dev dependencies for any ecosystem.** `[dev.*]` mirrors the base scope; `[dev.npm.deps]`
+  compiles to `devDependencies` and `[dev.deps]`/`[dev.pypi.deps]` to a pixi `dev` feature in the
+  default env. Still ahead: a `chefe install --prod` to exclude them, and cargo/gem dev parity.
 - [ ] **Lockfiles and reproducibility.** An application (`[npm] app`) already gets its manager's
   lockfile at the project root, committable as is. Still ahead: surface `pixi.lock` and the
   tooling lockfile under `.chefe/`, decide what belongs in version control, and guarantee an
