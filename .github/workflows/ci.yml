@@ -4,6 +4,7 @@ on:
   push:
     branches: [main]
   pull_request:
+  workflow_call: # let publish.yml run this exact gate before releasing
 
 jobs:
   test:

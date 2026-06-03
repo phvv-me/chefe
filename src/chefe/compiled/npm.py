@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from ..base import FlexModel
+from ..base import FlexModel, Toml
 from ..manifest import Manifest
 
 
@@ -32,9 +32,9 @@ class PackageJson(FlexModel):
             return None
         name = m.workspace.name if m.npm.app else f"{m.workspace.name}-npm"
         dependencies = {package: spec.version or "*" for package, spec in m.npm.deps.items()}
-        fields = dict(m.npm.package)
+        fields: dict[str, Toml] = {"name": name, "dependencies": dependencies, **m.npm.package}
         if m.dev.npm.deps:
             fields["devDependencies"] = {
                 pkg: s.version or "*" for pkg, s in m.dev.npm.deps.items()
             }
-        return cls(name=name, dependencies=dependencies, **fields)
+        return cls.model_validate(fields)
