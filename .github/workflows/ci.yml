@@ -2,7 +2,7 @@ name: CI
 
 on:
   pull_request:
-  workflow_call: # release.yml runs this exact gate on main before publishing
+  workflow_call: # publish.yml runs this exact gate on main before publishing
 
 jobs:
   test:

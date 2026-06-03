@@ -2,8 +2,11 @@ name: Release
 
 # Releases are driven by the version in pyproject.toml, not by manual tags.
 # On every push to main: run the full CI gate, then — only if `v<version>` is not
-# already a tag — tag that commit and publish to PyPI via Trusted Publishing (OIDC).
-# So bumping the version IS the release; an unchanged version is a no-op.
+# already a tag — build, publish to PyPI (Trusted Publishing/OIDC), and tag the
+# released commit. So bumping the version IS the release; an unchanged version is
+# a no-op. The file stays named publish.yml because the PyPI trusted publisher is
+# registered against this exact workflow path. Publish runs BEFORE the tag so a
+# failed upload leaves no tag and simply retries on the next push.
 on:
   push:
     branches: [main]
@@ -34,16 +37,10 @@ jobs:
         run: |
           if git rev-parse -q --verify "refs/tags/v${{ steps.ver.outputs.version }}" >/dev/null; then
             echo "new=false" >> "$GITHUB_OUTPUT"
-            echo "v${{ steps.ver.outputs.version }} already tagged — nothing to release."
+            echo "v${{ steps.ver.outputs.version }} already released — nothing to do."
           else
             echo "new=true" >> "$GITHUB_OUTPUT"
           fi
-
-      - if: steps.tag.outputs.new == 'true'
-        name: Tag the release
-        run: |
-          git tag "v${{ steps.ver.outputs.version }}"
-          git push origin "v${{ steps.ver.outputs.version }}"
 
       - if: steps.tag.outputs.new == 'true'
         uses: astral-sh/setup-uv@v5
@@ -51,6 +48,14 @@ jobs:
         run: uv build
       - if: steps.tag.outputs.new == 'true'
         uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          skip-existing: true # idempotent: a re-run after a partial failure won't error
+
+      - if: steps.tag.outputs.new == 'true'
+        name: Tag the released version
+        run: |
+          git tag "v${{ steps.ver.outputs.version }}"
+          git push origin "v${{ steps.ver.outputs.version }}"
 
       - if: steps.tag.outputs.new == 'true'
         uses: softprops/action-gh-release@v2
