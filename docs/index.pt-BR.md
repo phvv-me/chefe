@@ -27,7 +27,7 @@ Conda, Python, Node.js, Rust e os toolchains que o projeto declara. Projetos rea
 ## Instalação
 
 ```sh
-pip install chefe      # or: uv tool install chefe
+pip install chefe      # or: pipx install chefe
 ```
 
 o chefe instala o [pixi](https://pixi.sh), o motor para o qual ele compila, na primeira execução, então um único `pip install` é tudo de que você precisa.

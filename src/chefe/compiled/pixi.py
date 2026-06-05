@@ -6,6 +6,42 @@ from pydantic import Field
 from ..base import Model, Toml
 from ..manifest import Manifest, Spec, Task
 
+# pixi tables whose values are dependency specs; a ``path`` *source* lives inside
+# one of these specs, never at the dep-name level.
+DEP_TABLES = ("dependencies", "pypi-dependencies")
+
+
+def reroot_source(spec: Toml) -> Toml:
+    """A single dep spec with a repo-relative local ``path`` source shifted up one level.
+
+    The compiled manifest is emitted under ``.chefe/``, so ``packages/lote`` must
+    resolve as ``../packages/lote`` — the same shift applied to task ``cwd`` and
+    activation scripts. A bare version string, a table without ``path``, or an
+    absolute ``path`` ride through untouched.
+    """
+    if isinstance(spec, dict) and isinstance(path := spec.get("path"), str) and path[:1] != "/":
+        return {**spec, "path": f"../{path}"}
+    return spec
+
+
+def reparent(value: Toml) -> Toml:
+    """Reroot local path deps in the compiled tables, leaving everything else as is.
+
+    Only a ``path`` carried as a dependency *source* (a value under a
+    ``dependencies`` / ``pypi-dependencies`` table) is shifted, so a dependency
+    literally named ``path`` keeps its version untouched.
+    """
+    if isinstance(value, dict):
+        return {
+            key: {name: reroot_source(spec) for name, spec in item.items()}
+            if key in DEP_TABLES and isinstance(item, dict)
+            else reparent(item)
+            for key, item in value.items()
+        }
+    if isinstance(value, list):
+        return [reparent(item) for item in value]
+    return value
+
 
 class PixiManifest(Model):
     """The compiled pixi manifest (`pixi.toml`) emitted into the generated env."""
@@ -50,7 +86,7 @@ class PixiManifest(Model):
         # the manifest is emitted under `.chefe/`, so a repo-root script path
         # resolves one directory up from where pixi runs it
         scripts = [path if path.startswith("/") else f"../{path}" for path in m.activation.scripts]
-        activation = {
+        activation: dict[str, Toml] = {
             **({"env": variables} if variables else {}),
             **({"scripts": scripts} if scripts else {}),
         }
@@ -67,24 +103,24 @@ class PixiManifest(Model):
         if dev := cls.dev_feature(m, indexes):
             feature["dev"] = dev
             environments["default"] = {"features": ["dev"]}
-        return cls.model_validate(
-            {
-                "workspace": {
-                    "name": m.workspace.name,
-                    "version": m.workspace.version,
-                    "channels": m.workspace.channels,
-                    "platforms": m.workspace.platforms,
-                },
-                "system-requirements": m.system,
-                "activation": activation,
-                **m.tables(indexes),
-                "pypi-options": python.options(),
-                "target": {plat: scope.tables(indexes) for plat, scope in m.on.items()},
-                "feature": feature,
-                "environments": environments,
-                "tasks": {name: cls.task(spec) for name, spec in m.tasks.items()},
-            }
-        )
+        workspace: dict[str, Toml] = {
+            "name": m.workspace.name,
+            "version": m.workspace.version,
+            "channels": m.workspace.channels,
+            "platforms": m.workspace.platforms,
+        }
+        payload: dict[str, Toml] = {
+            "workspace": workspace,
+            "system-requirements": m.system,
+            "activation": activation,
+            **m.tables(indexes),
+            "pypi-options": python.options(),
+            "target": {plat: scope.tables(indexes) for plat, scope in m.on.items()},
+            "feature": feature,
+            "environments": environments,
+            "tasks": {name: cls.task(spec) for name, spec in m.tasks.items()},
+        }
+        return cls.model_validate(reparent(payload))
 
     @staticmethod
     def dev_feature(m: Manifest, indexes: dict[str, str]) -> dict[str, Toml]:

@@ -26,7 +26,7 @@ pueue  = ">=4"
 
 ## Python
 
-Os pacotes Python são resolvidos pelo pixi via `uv` no **mesmo** ambiente. `[python]` guarda as configurações, `[python.deps]` os pacotes e `[python.indexes]` índices extras nomeados.
+Os pacotes Python são resolvidos pelo pixi no **mesmo** ambiente. `[python]` guarda as configurações, `[python.deps]` os pacotes e `[python.indexes]` índices extras nomeados.
 
 ```toml
 [python]

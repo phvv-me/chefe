@@ -26,7 +26,7 @@ pueue  = ">=4"
 
 ## Python
 
-Python 包由 pixi 经 `uv` 解析进**同一个**环境。`[python]` 存放设置，`[python.deps]` 存放包，`[python.indexes]` 存放具名的额外索引。
+Python 包由 pixi 解析进**同一个**环境。`[python]` 存放设置，`[python.deps]` 存放包，`[python.indexes]` 存放具名的额外索引。
 
 ```toml
 [python]

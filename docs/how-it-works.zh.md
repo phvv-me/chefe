@@ -20,8 +20,7 @@ flowchart TB
 
     subgraph solve["chefe install 调用真正的工具"]
         direction LR
-        PIXI["pixi<br/>conda-forge"]
-        UV["uv<br/>在 pixi 内部"]
+        PIXI["pixi<br/>conda-forge + Python"]
         NPM["npm"]
         CARGO["cargo<br/>via pixi run cargo"]
     end
@@ -34,11 +33,9 @@ flowchart TB
     CG -. 无文件，就地安装 .-> CARGO
 
     PT --> PIXI
-    PIXI --> UV
     PJ --> NPM
 
     PIXI --> ENV
-    UV --> ENV
     NPM --> ENV
     CARGO --> ENV
 
@@ -47,7 +44,7 @@ flowchart TB
 
 - **结构**由 chefe 的 schema 校验，而**包规格说明**始终是各工具自己的职责。
 - 通过 `chefe add` 和 `chefe remove` 编辑 `chefe.toml` 会保留你的注释和格式。
-- `pixi`（内含 `uv`）是 conda 和 Python packages 的底层引擎，其他language/toolchain则是其上轻薄而显式的一层。
+- `pixi` 是 conda 和 Python packages 的底层引擎，其他language/toolchain则是其上轻薄而显式的一层。
 
 ## 快速上手
 

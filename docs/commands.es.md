@@ -13,7 +13,7 @@ chefe refleja los verbos de pixi sobre el manifest unificado. La mayoría de los
 | `chefe remove <pkg…>` | elimina paquetes donde sea que estén declarados, luego vuelve a sincronizar |
 | `chefe tree [env]` | declarado vs instalado, cada dep verificada en **su propio** ecosistema |
 | `chefe run <task> [args…]` | ejecuta una tarea dentro del entorno |
-| `chefe x <cmd…>` | ejecuta un comando en un entorno desechable, como uvx o pipx run |
+| `chefe x <cmd…>` | ejecuta un comando en un entorno desechable, como pipx run |
 | `chefe shell [env]` | abre una shell activada en `env` |
 | `chefe global install [name]` | instala las deps de cada ecosistema en un entorno global compartido |
 | `chefe clean` | elimina el entorno `.chefe/` generado y los manifests |
@@ -64,7 +64,7 @@ chefe x ruff check .                   # run a tool in a throwaway env, no manif
 chefe x --with build python -m build   # add extra packages with --with
 ```
 
-Como `uvx` o `pipx run`, `chefe x` aprovisiona un entorno efímero para la herramienta y la ejecuta, sin dejar ningún `chefe.toml` atrás.
+Como `pipx run`, `chefe x` aprovisiona un entorno efímero para la herramienta y la ejecuta, sin dejar ningún `chefe.toml` atrás.
 
 ## global install
 

@@ -27,7 +27,7 @@ Conda、Python、Node.js、Rust、そしてプロジェクトが宣言する too
 ## インストール
 
 ```sh
-pip install chefe      # or: uv tool install chefe
+pip install chefe      # or: pipx install chefe
 ```
 
 chefe は初回実行時に、コンパイル先のエンジンである [pixi](https://pixi.sh) をインストールします。そのため `pip install` 一回だけで十分です。

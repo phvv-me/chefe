@@ -20,8 +20,7 @@ flowchart TB
 
     subgraph solve["chefe install runs the real tools"]
         direction LR
-        PIXI["pixi<br/>conda-forge"]
-        UV["uv<br/>inside pixi"]
+        PIXI["pixi<br/>conda-forge + Python"]
         NPM["npm"]
         CARGO["cargo<br/>via pixi run cargo"]
     end
@@ -34,11 +33,9 @@ flowchart TB
     CG -. no file, installs in-place .-> CARGO
 
     PT --> PIXI
-    PIXI --> UV
     PJ --> NPM
 
     PIXI --> ENV
-    UV --> ENV
     NPM --> ENV
     CARGO --> ENV
 

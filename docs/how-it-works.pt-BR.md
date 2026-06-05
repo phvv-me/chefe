@@ -20,8 +20,7 @@ flowchart TB
 
     subgraph solve["chefe install executa as ferramentas reais"]
         direction LR
-        PIXI["pixi<br/>conda-forge"]
-        UV["uv<br/>dentro do pixi"]
+        PIXI["pixi<br/>conda-forge + Python"]
         NPM["npm"]
         CARGO["cargo<br/>via pixi run cargo"]
     end
@@ -34,11 +33,9 @@ flowchart TB
     CG -. sem arquivo, instala no local .-> CARGO
 
     PT --> PIXI
-    PIXI --> UV
     PJ --> NPM
 
     PIXI --> ENV
-    UV --> ENV
     NPM --> ENV
     CARGO --> ENV
 
@@ -47,7 +44,7 @@ flowchart TB
 
 - A **estrutura** é validada pelo schema do chefe, enquanto as **especificações de pacotes** continuam sendo trabalho de cada ferramenta.
 - Editar o `chefe.toml` através do `chefe add` e do `chefe remove` preserva seus comentários e sua formatação.
-- O `pixi` (com o `uv` dentro dele) é o motor profundo para conda e Python packages, e os outros linguagens/toolchains são camadas finas e explícitas por cima.
+- O `pixi` é o motor profundo para conda e Python packages, e os outros linguagens/toolchains são camadas finas e explícitas por cima.
 
 ## Início rápido
 

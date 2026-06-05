@@ -28,6 +28,9 @@ class PackageManager:
     """A workspace: one manifest, compiled into a generated env and run by the real tools."""
 
     def __init__(self, root: Path = Path()) -> None:
+        # Absolute so the env bin dirs put on PATH stay valid when a backend runs
+        # from inside the env: a relative npm path breaks once the cwd changes.
+        root = root.absolute()
         self.manifest = root / MANIFEST
         self.root = root
         self.out = root / ENV_DIR

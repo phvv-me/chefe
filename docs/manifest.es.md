@@ -26,7 +26,7 @@ pueue  = ">=4"
 
 ## Python
 
-Los paquetes Python los resuelve pixi-vía-`uv` en el **mismo** entorno. `[python]` contiene la configuración, `[python.deps]` los paquetes, y `[python.indexes]` índices extra con nombre.
+Los paquetes Python los resuelve pixi en el **mismo** entorno. `[python]` contiene la configuración, `[python.deps]` los paquetes, y `[python.indexes]` índices extra con nombre.
 
 ```toml
 [python]

@@ -124,3 +124,32 @@ def test_activation_scripts_resolve_from_the_chefe_dir() -> None:
     )
     pixi = PixiManifest.from_manifest(manifest)
     assert pixi.activation["scripts"] == ["../scripts/activate.sh", "/opt/hook.sh"]
+
+
+def test_local_path_deps_resolve_from_the_chefe_dir() -> None:
+    """A repo-relative editable path dep is rewritten one level up (the manifest lives in
+    `.chefe/`), so pixi canonicalizes it against the repo root; an absolute path rides through.
+    A dependency literally named `path` keeps its version (only path *sources* are shifted)."""
+    manifest = Manifest.from_toml(
+        """
+        [workspace]
+        name = "demo"
+        platforms = ["linux-64"]
+
+        [deps]
+        python = ">=3.11"
+        path = ">=16"
+
+        [python.deps]
+        here = { path = "packages/here", editable = true }
+        there = { path = "/opt/there", editable = true }
+        """
+    )
+    pixi = PixiManifest.from_manifest(manifest)
+    assert pixi.pypi_dependencies["here"].model_extra == {
+        "path": "../packages/here",
+        "editable": True,
+    }
+    assert pixi.pypi_dependencies["there"].model_extra == {"path": "/opt/there", "editable": True}
+    # a conda dependency *named* `path` keeps its version string, not a rerooted source
+    assert pixi.dependencies["path"].version == ">=16"

@@ -90,5 +90,5 @@ chefe tree serving
 Y para herramientas de un solo uso, sin necesidad de manifest:
 
 ```sh
-chefe x ruff check .       # run a tool in a throwaway env, like uvx
+chefe x ruff check .       # run a tool in a throwaway env, like pipx run
 ```

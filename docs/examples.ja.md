@@ -90,5 +90,5 @@ chefe tree serving
 マニフェストを必要としない単発のツール実行には、次のようにします。
 
 ```sh
-chefe x ruff check .       # run a tool in a throwaway env, like uvx
+chefe x ruff check .       # run a tool in a throwaway env, like pipx run
 ```

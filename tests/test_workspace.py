@@ -15,6 +15,16 @@ from chefe.state import Installed
 Workspace = Callable[[str], PackageManager]
 
 
+def test_manager_root_is_absolute(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """A relative root is resolved against the cwd, so the env bin dirs put on PATH stay valid once
+    a backend runs from inside the env (a relative npm path would break after a cwd change)."""
+    monkeypatch.chdir(tmp_path)
+    manager = PackageManager(Path("project"))
+    assert manager.root.is_absolute()
+    assert manager.root == tmp_path / "project"
+    assert manager.manifest.is_absolute() and manager.out.is_absolute()
+
+
 def test_init_scaffolds_then_is_idempotent(tmp_path: Path, faker_instance: Faker) -> None:
     """init writes a starter manifest once and leaves an existing one untouched."""
     project, other = faker_instance.word(), faker_instance.word()

@@ -27,7 +27,7 @@ Conda, Python, Node.js, Rust, and whatever toolchains your project declares. Rea
 ## Installation
 
 ```sh
-pip install chefe      # or: uv tool install chefe
+pip install chefe      # or: pipx install chefe
 ```
 
 chefe installs [pixi](https://pixi.sh), the engine it compiles to, on first run, so a single `pip install` is all you need.

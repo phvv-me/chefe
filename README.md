@@ -16,7 +16,7 @@
 ## Installation
 
 ```sh
-pip install chefe      # or: uv tool install chefe
+pip install chefe      # or: pipx install chefe
 ```
 
 chefe installs [pixi](https://pixi.sh), the engine it compiles to, on first run, so a single
@@ -55,7 +55,7 @@ chefe add ripgrep          # conda is the default resolver
 chefe add torch -l python
 chefe add prettier -l nodejs
 chefe install              # provision every language/toolchain at once
-chefe x ruff check .       # run a tool in a throwaway env, like uvx
+chefe x ruff check .       # run a tool in a throwaway env, like pipx run
 chefe tree                 # what's declared vs installed, per language/toolchain
 ```
 

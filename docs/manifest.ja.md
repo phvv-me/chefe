@@ -26,7 +26,7 @@ pueue  = ">=4"
 
 ## Python
 
-Python パッケージは pixi が `uv` を介して **同じ** 環境へ解決します。`[python]` は設定を、`[python.deps]` はパッケージを、`[python.indexes]` は名前付きの追加インデックスを保持します。
+Python パッケージは pixi が **同じ** 環境へ解決します。`[python]` は設定を、`[python.deps]` はパッケージを、`[python.indexes]` は名前付きの追加インデックスを保持します。
 
 ```toml
 [python]

@@ -27,7 +27,7 @@ Conda、Python、Node.js、Rust，以及项目声明的 toolchain。真实的项
 ## 安装
 
 ```sh
-pip install chefe      # or: uv tool install chefe
+pip install chefe      # or: pipx install chefe
 ```
 
 chefe 会在首次运行时安装它编译的目标引擎 [pixi](https://pixi.sh)，因此只需一次 `pip install` 就够了。
