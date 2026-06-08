@@ -76,20 +76,25 @@ def recording_backends(mocker: MockerFixture) -> list[tuple[str, ...]]:
     """Replace every subprocess seam with a recorder of `(Backend, verb, *flags, *args)`.
 
     Returns the shared call list so a test can assert exactly which argv the manager built,
-    while the real tools are never invoked. Every backend's `__call__` shares one recorder,
-    so the list is a single cross-backend, ordered, flag-normalized view of every invocation.
+    while the real tools are never invoked. Every backend's `__call__` and pixi's exit-code
+    sibling share one recorder, so the list is a single cross-backend, ordered, flag-normalized
+    view of every invocation. `Node` is the base for every JS driver (npm/pnpm/yarn/aube), so
+    patching it once records whichever one a manifest selects, under its own class name.
     """
     calls: list[tuple[str, ...]] = []
 
-    def record(self: object, verb: str, *args: str, **flags: bool | str | None) -> bool:
+    def record(self: Tool, verb: str, *args: str, **flags: bool | str | None) -> bool:
         calls.append((type(self).__name__, verb, *Tool.flags(**flags), *args))
         return True
 
-    # `Node` is the base for every JS driver (npm/pnpm/yarn/aube), so patching it once records
-    # whichever one a manifest selects, under its own class name.
+    def record_code(self: Tool, verb: str, *args: str, **flags: bool | str | None) -> int:
+        record(self, verb, *args, **flags)
+        return 0
+
     for backend in (Pixi, Node, Cargo):
         mocker.patch.object(backend, "__call__", side_effect=record, autospec=True)
         mocker.patch.object(backend, "installed", side_effect=lambda self, env: {}, autospec=True)
+    mocker.patch.object(Pixi, "exit_code", side_effect=record_code, autospec=True)
     mocker.patch.object(
         Cargo,
         "sync",

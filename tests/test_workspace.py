@@ -420,6 +420,21 @@ def test_update_and_upgrade_and_shell_and_run(
     assert {"update", "upgrade", "shell", "run"} <= {c[1] for c in recording_backends}
 
 
+@pytest.mark.parametrize("code", [0, 3])
+def test_run_exits_with_the_task_code(
+    workspace: Workspace, monkeypatch: pytest.MonkeyPatch, code: int
+) -> None:
+    """`run` exits with the task's own code, staying silent only when it succeeds."""
+    manager = workspace("[deps]\npython = '*'\n")
+    monkeypatch.setattr(Pixi, "exit_code", lambda self, *a, **k: code)
+    if code:
+        with pytest.raises(SystemExit) as exit_info:
+            manager.run("build")
+        assert exit_info.value.code == code
+    else:
+        assert manager.run("build") is None
+
+
 def test_run_and_shell_expose_npm_bins(
     workspace: Workspace, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -438,11 +453,11 @@ def test_run_and_shell_expose_npm_bins(
     binary_dir.mkdir(parents=True)
     seen: list[tuple[str, bool]] = []
 
-    def record(self: Pixi, verb: str, *args: str, **flags: bool | str | None) -> bool:
+    def note(verb: str) -> None:
         seen.append((verb, str(binary_dir) in local.env["PATH"]))
-        return True
 
-    monkeypatch.setattr(Pixi, "__call__", record)
+    monkeypatch.setattr(Pixi, "__call__", lambda self, verb, *a, **k: note(verb) or True)
+    monkeypatch.setattr(Pixi, "exit_code", lambda self, verb, *a, **k: note(verb) or 0)
     manager.run("qmd", "--version")
     manager.shell()
     assert seen == [("run", True), ("shell", True)]

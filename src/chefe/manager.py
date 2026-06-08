@@ -176,9 +176,11 @@ class PackageManager:
         )
 
     def run(self, task: str, *args: Annotated[str, Parameter(allow_leading_hyphen=True)]) -> None:
-        """Run a task or installed executable inside the env."""
+        """Run a task or installed executable inside the env, exiting with its code."""
         with self.activated():
-            self.pixi("run", task, *args)
+            code = self.pixi.exit_code("run", task, *args)
+        if code:
+            raise SystemExit(code)
 
     def x(
         self,

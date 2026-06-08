@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "chefe"
-version = "0.0.14"
+version = "0.0.15"
 description = "One manifest for every package manager | conda, Python, Node.js, Rust & more, behind a single file."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -36,7 +36,7 @@ dependencies = [
   "pydantic>=2.7",
   "tomlkit>=0.13",
   "packaging>=24",
-  "plumbum>=1.8",
+  "plumbum>=2",
   "rich>=13",
   "typing-extensions>=4.6",
 ]
@@ -84,10 +84,6 @@ files = ["src"]
 mypy_path = "src"
 namespace_packages = false
 
-[[tool.mypy.overrides]]
-module = ["plumbum.*"]
-ignore_missing_imports = true
-
 [tool.pytest.ini_options]
 addopts = "-q -ra --strict-markers --cov=chefe --cov-report=term-missing"
 testpaths = ["tests"]
@@ -104,4 +100,5 @@ exclude_lines = [
   "raise NotImplementedError",
   "if TYPE_CHECKING:",
   "if __name__ == .__main__.:",
+  "\\.\\.\\.",
 ]

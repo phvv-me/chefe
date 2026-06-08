@@ -1,10 +1,15 @@
+from collections.abc import Callable
 from functools import cached_property
 from pathlib import Path
+from typing import TypeVar
 
-from plumbum import TF, local
+from plumbum import FG, TF, local
 from plumbum.commands.base import BaseCommand
+from plumbum.commands.processes import ProcessExecutionError
 
 from ..state import Installed
+
+T = TypeVar("T")
 
 
 class Tool:
@@ -29,6 +34,20 @@ class Tool:
     def foreground(command: BaseCommand) -> bool:
         """Run ``command`` attached to the terminal, returning whether it succeeded."""
         return bool(command & TF(FG=True))
+
+    @staticmethod
+    def passthrough(command: BaseCommand) -> int:
+        """Run ``command`` attached to the terminal, returning its exact exit code.
+
+        Unlike :meth:`foreground` (a success bool), this preserves the code so a
+        transparent ``chefe run`` exits with whatever the wrapped command exited
+        — the difference between a failed task reporting failure and reporting ``0``.
+        """
+        try:
+            command & FG
+        except ProcessExecutionError as error:
+            return error.retcode if isinstance(error.retcode, int) else 1
+        return 0
 
     def scope(self) -> tuple[str, ...]:
         """Args injected after the verb to pin the command to this workspace (default none)."""
@@ -65,13 +84,32 @@ class Tool:
         """
         if not self.available():
             return True
-        argv = (verb, *self.scope(), *self.flags(**flags), *args)
-        command = self.command[argv]
+        return self.within_cwd(lambda command: self.foreground(command), verb, *args, **flags)
+
+    def exit_code(self, verb: str, *args: str, **flags: bool | str | None) -> int:
+        """Run in the foreground and return the command's exact exit code (``0`` if unavailable).
+
+        The code-preserving sibling of :meth:`__call__`, for ``chefe run``'s transparent
+        passthrough where a failing command must exit non-zero.
+        """
+        if not self.available():
+            return 0
+        return self.within_cwd(lambda command: self.passthrough(command), verb, *args, **flags)
+
+    def within_cwd(
+        self,
+        action: Callable[[BaseCommand], T],
+        verb: str,
+        *args: str,
+        **flags: bool | str | None,
+    ) -> T:
+        """Build ``verb + scope + flags + args`` and run ``action`` on it inside ``cwd``."""
+        command = self.command[(verb, *self.scope(), *self.flags(**flags), *args)]
         directory = self.cwd()
         if directory is None:
-            return self.foreground(command)
+            return action(command)
         with local.cwd(str(directory)):
-            return self.foreground(command)
+            return action(command)
 
     def installed(self, env: str) -> dict[str, Installed]:
         """Packages currently provisioned for ``env``: name -> :class:`Installed`."""
