@@ -534,3 +534,17 @@ def test_app_package_json_takes_workspace_name_and_passthrough() -> None:
     assert data["type"] == "module"  # framework fields ride through untouched
     assert data["pnpm"]["onlyBuiltDependencies"] == ["esbuild"]
     assert data["dependencies"] == {"svelte": ">=5"}
+
+
+def test_modules_default_to_nothing() -> None:
+    """With no `[modules]` table there are no module specs; the host (e.g. gold) loads none."""
+    manifest = Manifest.from_toml('[workspace]\nname = "w"\n')
+    assert manifest.modules.specs() == []
+
+
+def test_modules_render_name_version_specs_in_order() -> None:
+    """`[modules]` `name = "version"` pairs become ordered `name/version` specs, no discovery."""
+    manifest = Manifest.from_toml(
+        '[workspace]\nname = "w"\n\n[modules]\nnvidia = "26.3"\ngcc = "15.2.0"\n'
+    )
+    assert manifest.modules.specs() == ["nvidia/26.3", "gcc/15.2.0"]

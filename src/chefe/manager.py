@@ -18,10 +18,14 @@ from rich.table import Table
 from . import ENV_DIR, MANIFEST, NAME, PIXI_RESOLVED
 from .backends import Cargo, Node, Pixi
 from .compiled import PackageJson, PixiManifest
+from .environment import Environment
 from .errors import ChefeError, ManifestValidationMessage
 from .manifest import Document, Manifest, Spec
 from .state import Declared
 from .utils import current_platform, satisfied
+
+# The generated per-host activation script, beside the compiled pixi manifest.
+ACTIVATE = "activate.sh"
 
 
 class PackageManager:
@@ -34,6 +38,7 @@ class PackageManager:
         self.manifest = root / MANIFEST
         self.root = root
         self.out = root / ENV_DIR
+        self.activate_path = self.out / ACTIVATE
         self.pixi = Pixi(self.out)
         self.cargo = Cargo(self.out, self.pixi)
         self.console = Console()
@@ -103,15 +108,42 @@ class PackageManager:
             self.node(manifest).manifest.write_text(package.to_json())
         self.console.print(f"[green]synced[/green] {self.manifest.name} → {self.out.name}/")
 
-    def install(self, env: str = "default") -> None:
-        """Sync, then make ``env`` match the manifest across every language/toolchain."""
-        self.sync()
-        self.pixi("install", "-e", env)
-        with self.activated(env):
-            self.node(self.load())("install")
-        crates = self.rust_deps(env)
-        self.cargo.sync(env, crates)
-        self.console.print(f"[green]installed[/green] env [bold]{escape(env)}[/bold]")
+    def install(
+        self,
+        env: str = "default",
+        activate_only: Annotated[bool, Parameter(name="--activate-only")] = False,
+    ) -> None:
+        """Sync, then make ``env`` match the manifest across every language/toolchain.
+
+        Always (re)generates the per-host `activate.sh` so a job or interactive shell can
+        `source .chefe/activate.sh && python -m ...`. `--activate-only` skips the package
+        install and just refreshes that script against the already-provisioned env.
+        """
+        if not activate_only:
+            self.sync()
+            self.pixi("install", "-e", env)
+            with self.activated(env):
+                self.node(self.load())("install")
+            crates = self.rust_deps(env)
+            self.cargo.sync(env, crates)
+            self.console.print(f"[green]installed[/green] env [bold]{escape(env)}[/bold]")
+        self.activate(env)
+
+    def activate(self, env: str = "default") -> Path:
+        """Generate `.chefe/activate.sh` for this host and return its path.
+
+        Writes the manifest's `[modules]` `name = version` pairs as `module purge` + `module
+        load name/version ...` (guarded so it no-ops off a cluster), followed by the pixi
+        activation, so a job or interactive shell can `source .chefe/activate.sh && python -m ...`.
+        """
+        self.out.mkdir(exist_ok=True)
+        modules = self.load().modules.specs()
+        Environment(self.activate_path, self.pixi.shell_hook(env)).write(modules)
+        chosen = ", ".join(modules) if modules else "pixi env only (no modules)"
+        self.console.print(
+            f"[green]wrote[/green] {self.activate_path} · modules: [bold]{escape(chosen)}[/bold]"
+        )
+        return self.activate_path
 
     def update(self, env: str = "default") -> None:
         """Re-solve to the newest allowed versions across ecosystems."""

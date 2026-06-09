@@ -102,4 +102,9 @@ def recording_backends(mocker: MockerFixture) -> list[tuple[str, ...]]:
         autospec=True,
     )
     mocker.patch.object(Pixi, "global_install", side_effect=record, autospec=True)
+    # `install` ends by regenerating `activate.sh`; stub the pixi shell-hook seam so a
+    # backend-only test never shells out to a real pixi.
+    mocker.patch.object(
+        Pixi, "shell_hook", side_effect=lambda self, env="default": "", autospec=True
+    )
     return calls

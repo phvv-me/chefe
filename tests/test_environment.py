@@ -1,0 +1,80 @@
+from __future__ import annotations
+
+from pathlib import Path
+
+import pytest
+from plumbum import local
+
+from chefe.environment import Environment, module_init_snippet
+
+MODULES = ("nvidia/26.3", "gcc/15.2.0")
+
+
+def render(tmp_path: Path, modules: tuple[str, ...], hook: str = "export FOO=bar") -> str:
+    """The `activate.sh` text an :class:`Environment` writes for ``modules``."""
+    return Environment(tmp_path / "activate.sh", hook).render(modules)
+
+
+def test_loads_the_pinned_modules(tmp_path: Path) -> None:
+    """The script sources module init, purges, then loads exactly the pinned list."""
+    script = render(tmp_path, MODULES)
+    assert "module purge" in script
+    assert "module load nvidia/26.3 gcc/15.2.0" in script
+    assert "/usr/share/lmod/lmod/init/bash" in script
+
+
+def test_module_lines_are_guarded(tmp_path: Path) -> None:
+    """The module commands are guarded by `command -v module` so they no-op off-cluster."""
+    script = render(tmp_path, MODULES)
+    assert "if command -v module >/dev/null 2>&1; then" in script
+
+
+def test_empty_modules_emit_no_load(tmp_path: Path) -> None:
+    """With no modules configured the load line carries nothing, still valid bash."""
+    script = render(tmp_path, ())
+    assert "module load \n" in script or "module load\n" in script
+    assert "export FOO=bar" in script
+
+
+def test_no_libstdcxx_preload(tmp_path: Path) -> None:
+    """The libstdc++ LD_PRELOAD hack is gone; the pinned SDK needs no CXXABI fix."""
+    script = render(tmp_path, MODULES)
+    assert "LD_PRELOAD" not in script
+    assert "libstdc++" not in script
+
+
+def test_hook_is_embedded_verbatim(tmp_path: Path) -> None:
+    """The pixi shell-hook text is reproduced as-is, so PATH and env vars match `chefe run`."""
+    hook = 'export PATH="/env/bin:$PATH"\nexport PYTHONPATH="research"'
+    script = render(tmp_path, MODULES, hook)
+    assert 'export PATH="/env/bin:$PATH"' in script
+    assert 'export PYTHONPATH="research"' in script
+
+
+@pytest.mark.parametrize("modules", [(), MODULES])
+def test_generated_script_is_valid_bash(tmp_path: Path, modules: tuple[str, ...]) -> None:
+    """Both the module and module-less scripts parse and source cleanly under bash."""
+    path = tmp_path / "activate.sh"
+    path.write_text(render(tmp_path, modules))
+    syntax = local["bash"]["-n", str(path)].run(retcode=None)[0]
+    sourced = local["bash"]["-c", f"source {path} && echo ok"].run(retcode=None)
+    assert syntax == 0
+    assert sourced[0] == 0 and "ok" in sourced[1]
+
+
+def test_write_persists_the_script(tmp_path: Path) -> None:
+    """`write` renders to disk and returns the path it wrote."""
+    path = Environment(tmp_path / "activate.sh", "export FOO=bar").write(MODULES)
+    assert path == tmp_path / "activate.sh"
+    assert "module load nvidia/26.3 gcc/15.2.0" in path.read_text()
+
+
+def test_module_init_snippet_sources_first_existing(tmp_path: Path) -> None:
+    """The init snippet sources the first present init and is a no-op when none exist."""
+    present = tmp_path / "present.sh"
+    present.write_text("export MOD_INIT_RAN=1\n")
+    snippet = module_init_snippet([str(tmp_path / "missing.sh"), str(present)])
+    out = local["bash"]["-c", f"{snippet}; echo ${{MOD_INIT_RAN:-no}}"]()
+    assert out.strip() == "1"
+    nothing = module_init_snippet([str(tmp_path / "absent.sh")])
+    assert local["bash"]["-c", f"{nothing}; echo done"]().strip() == "done"

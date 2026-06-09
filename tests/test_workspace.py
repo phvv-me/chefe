@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 from faker import Faker
 from plumbum import local
+from pytest_mock import MockerFixture
 
 from chefe.backends import Cargo, Node, Pixi
 from chefe.errors import ChefeError
@@ -376,6 +377,35 @@ def test_install_drives_every_backend(
     manager.install()
     verbs = {(c[0], c[1]) for c in recording_backends}
     assert {("Pixi", "install"), ("Node", "install"), ("Cargo", "sync")} <= verbs
+
+
+def test_activate_writes_a_sourceable_script(workspace: Workspace, mocker: MockerFixture) -> None:
+    """`chefe activate` writes `.chefe/activate.sh` embedding the pixi hook and pinned modules."""
+    manager = workspace('[deps]\npython = "*"\n\n[modules]\nnvidia = "26.3"\ngcc = "15.2.0"\n')
+    mocker.patch.object(
+        Pixi,
+        "shell_hook",
+        side_effect=lambda self, env="default": "export PIXI_OK=1",
+        autospec=True,
+    )
+    path = manager.activate()
+    script = path.read_text()
+    assert path == manager.out / "activate.sh"
+    assert "export PIXI_OK=1" in script
+    # the pinned default modules render, guarded so they no-op off-cluster.
+    assert "module load nvidia/26.3 gcc/15.2.0" in script
+    assert "command -v module" in script
+    assert local["bash"]["-n", str(path)].run(retcode=None)[0] == 0
+
+
+def test_install_activate_only_skips_package_install(
+    workspace: Workspace, recording_backends: list[tuple[str, ...]]
+) -> None:
+    """`install --activate-only` refreshes activate.sh without touching any backend."""
+    manager = workspace('[deps]\npython = "*"\n')
+    manager.install(activate_only=True)
+    assert not any(call[1] == "install" for call in recording_backends)
+    assert (manager.out / "activate.sh").exists()
 
 
 @pytest.mark.parametrize("manager_name", ["npm", "pnpm", "yarn", "aube"])

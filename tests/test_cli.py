@@ -15,6 +15,7 @@ COMMANDS = [
     (["init", "proj"], "init"),
     (["sync"], "sync"),
     (["install", "serving"], "install"),
+    (["activate"], "activate"),
     (["update"], "update"),
     (["clean"], "clean"),
     (["run", "build", "--", "-x"], "run"),

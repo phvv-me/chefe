@@ -176,6 +176,27 @@ def test_pixi_installed_parses_list_json(
     assert found["rich"].explicit is False
 
 
+def test_pixi_shell_hook_returns_activation_script(
+    fp: FakeProcess, tmp_path: Path, tool_paths: dict[str, str]
+) -> None:
+    """`shell_hook` asks pixi for the bash activation of an env and returns it verbatim."""
+    pixi = Pixi(tmp_path)
+    fp.register(
+        [
+            tool_paths["pixi"],
+            "shell-hook",
+            "-s",
+            "bash",
+            "-e",
+            "default",
+            "--manifest-path",
+            str(pixi.manifest),
+        ],
+        stdout='export PATH="/env/bin:$PATH"\n',
+    )
+    assert pixi.shell_hook() == 'export PATH="/env/bin:$PATH"\n'
+
+
 @pytest.mark.parametrize(
     ("call", "expected"),
     [

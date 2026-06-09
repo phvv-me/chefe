@@ -73,6 +73,15 @@ class Pixi(Tool):
     def scope(self) -> tuple[str, ...]:
         return ("--manifest-path", str(self.manifest))
 
+    def shell_hook(self, env: str = "default", shell: str = "bash") -> str:
+        """The activation script for ``env``: the env vars, PATH, and `[activation] scripts`
+        pixi sets when entering the env, emitted as a sourceable ``shell`` snippet.
+
+        This is the exact activation `chefe run` performs, captured as text so a generated
+        `activate.sh` can reproduce the whole pixi env without invoking pixi at job time.
+        """
+        return str(self.command["shell-hook", "-s", shell, "-e", env, *self.scope()]())
+
     def global_prefix(self, name: str) -> Path:
         """The prefix of global env ``name``; its `bin/` holds python/npm/cargo."""
         return self.home() / "envs" / name

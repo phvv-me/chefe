@@ -35,6 +35,7 @@ def build(manager: PackageManager) -> App:
         manager.init,
         manager.sync,
         manager.install,
+        manager.activate,
         manager.update,
         manager.clean,
         manager.run,

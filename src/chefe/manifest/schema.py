@@ -193,6 +193,23 @@ class Activation(Model):
     scripts: list[str] = []
 
 
+class Modules(Model):
+    """The ``[modules]`` table: HPC environment modules as ``name = "version"`` pairs.
+
+    Each pair renders to one ``module load name/version`` spec, in declared order -- e.g.
+    ``cuda = "13.2"`` and ``gcc = "15.2.0"`` become ``module load cuda/13.2 gcc/15.2.0`` in the
+    generated `activate.sh`. On a host without Lmod/environment-modules (a laptop, gold) the
+    load is guarded by ``command -v module`` and is a harmless no-op, so the same manifest is
+    safe everywhere.
+    """
+
+    model_config = ConfigDict(extra="allow", frozen=True, populate_by_name=True)
+
+    def specs(self) -> list[str]:
+        """``name/version`` module specs in declared order (empty when no modules are set)."""
+        return [f"{name}/{version}" for name, version in (self.model_extra or {}).items()]
+
+
 class Manifest(Scope):
     """The whole manifest: a :class:`Scope` plus identity, conditions, env, tasks."""
 
@@ -204,6 +221,7 @@ class Manifest(Scope):
     envs: dict[str, Env] = {}  # [envs.<name>]    → pixi [feature]+[environments]
     env: dict[str, str] = {}  # env vars
     activation: Activation = Activation()  # [activation] scripts
+    modules: Modules = Modules()  # [modules]  → HPC module stack for activate.sh
     tasks: dict[str, Task] = {}
 
     @model_validator(mode="after")
