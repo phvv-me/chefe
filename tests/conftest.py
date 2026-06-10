@@ -1,11 +1,12 @@
-from __future__ import annotations
-
 import os
+import tempfile
 from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 
 import pytest
 from faker import Faker
+from hypothesis import strategies as st
 from plumbum import local
 from pytest_mock import MockerFixture
 
@@ -13,8 +14,26 @@ from chefe.backends import Cargo, Node, Pixi, Tool
 from chefe.manager import PackageManager
 from chefe.manifest import Document
 
+from .strategies import PACKAGES
+
 # A `[workspace]` header pinned to a fixed platform so generated manifests are deterministic.
 HEADER = '[workspace]\nname = "w"\nplatforms = ["linux-64"]\n\n'
+
+
+@contextmanager
+def document_from_toml(text: str = '[workspace]\nname = "w"\n') -> Iterator[Document]:
+    """Create an on-disk editable manifest from TOML text for one test example."""
+    with tempfile.TemporaryDirectory(prefix="chefe-") as root:
+        path = Path(root) / "chefe.toml"
+        path.write_text(text)
+        yield Document(path)
+
+
+def version_maps(versions: st.SearchStrategy[str]) -> st.SearchStrategy[dict[str, str]]:
+    """Dependency version maps whose keys stay unique after `Document.normalize`."""
+    return st.lists(PACKAGES, max_size=4, unique_by=Document.normalize).flatmap(
+        lambda names: st.fixed_dictionaries({name: versions for name in names})
+    )
 
 
 @pytest.fixture(scope="session")

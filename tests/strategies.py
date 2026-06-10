@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import string
 
 from hypothesis import strategies as st
@@ -22,8 +20,9 @@ PACKAGES = st.text(string.ascii_lowercase + string.digits + "-_", min_size=1, ma
     lambda name: name[0] in string.ascii_lowercase
 )
 
-# `default` is the implicit environment name, so users cannot define `[envs.default]`.
-ENV_NAMES = PACKAGES.filter(lambda name: name != "default")
+# `default` is the implicit environment and `dev` compiles from `[dev]`, so neither is a
+# legal `[envs.<name>]` (the manifest validator rejects both as reserved).
+ENV_NAMES = PACKAGES.filter(lambda name: name not in ("default", "dev"))
 
 # A few realistic version constraints plus the wildcard.
 VERSIONS = st.sampled_from(["*", ">=1.0", "==2.3.4", ">=3.11,<4", "~=1.4", "1.2.3"])

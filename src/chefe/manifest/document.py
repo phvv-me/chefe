@@ -3,10 +3,18 @@ from pathlib import Path
 from typing import cast
 
 import tomlkit
+from pydantic import ValidationError
 from tomlkit import TOMLDocument
-from tomlkit.items import InlineTable, Table
+from tomlkit.items import AbstractTable, InlineTable, Table
 
 from ..base import Toml
+from ..errors import ChefeError, manifest_validation_text
+from ..utils import platform_scopes
+from .schema import Manifest
+
+# Keys that mark a runtime-keyed toolchain table (mirrors `ToolchainSpec`'s fields), so
+# `remove` can tell `[nodejs]` apart from structural tables like `[workspace]`.
+TOOLCHAIN_MARKERS = ("deps", "dev", "manager", "app", "package", "bin_dirs", "indexes")
 
 
 class Document:
@@ -36,19 +44,28 @@ class Document:
         return node if isinstance(node, Mapping) else {}
 
     @classmethod
-    def dep_tables(cls, node: Mapping[str, Toml]) -> list[Table]:
-        """Every nested `deps` table in ``node``."""
-        tables: list[Table] = []
+    def dep_tables(cls, node: Mapping[str, Toml]) -> list[AbstractTable]:
+        """Every nested `deps` table in ``node``, whether a section or an inline table."""
+        tables: list[AbstractTable] = []
         for key, value in node.items():
-            if key == "deps" and isinstance(value, Table):
+            if key == "deps" and isinstance(value, AbstractTable):
                 tables.append(value)
             elif isinstance(value, Mapping):
                 tables.extend(cls.dep_tables(value))
         return tables
 
     def save(self) -> None:
-        """Write the document back to disk."""
-        self.path.write_text(tomlkit.dumps(self.doc))
+        """Write the document back to disk, refusing to persist a manifest `load` would reject.
+
+        Every writer funnels through here, so no chefe command can wedge the workspace by
+        saving a manifest that the next command fails to parse or validate.
+        """
+        text = tomlkit.dumps(self.doc)
+        try:
+            Manifest.from_toml(text)
+        except ValidationError as error:
+            raise ChefeError(manifest_validation_text(self.path, error)) from error
+        self.path.write_text(text)
 
     def table(self, path: list[str]) -> Table:
         """The table at ``path``, creating intermediate tables as needed."""
@@ -72,13 +89,15 @@ class Document:
         self.remove_source_tables(self.doc, packages)
         return removed
 
-    def remove_source_tables(self, node: Table | TOMLDocument, packages: tuple[str, ...]) -> None:
+    def remove_source_tables(
+        self, node: AbstractTable | TOMLDocument, packages: tuple[str, ...]
+    ) -> None:
         """Remove runtime-keyed source tables when their runtime package is removed."""
         targets = {self.normalize(package) for package in packages}
         for key, value in tuple(node.items()):
-            if not isinstance(value, Table):
+            if not isinstance(value, AbstractTable):
                 continue
-            if self.normalize(key) in targets and "deps" in value:
+            if self.normalize(key) in targets and any(m in value for m in TOOLCHAIN_MARKERS):
                 node.pop(key, None)
             else:
                 self.remove_source_tables(value, packages)
@@ -86,30 +105,93 @@ class Document:
     def pull(self, pixi_doc: Mapping[str, Toml]) -> None:
         """Fold pixi's resolved conda + Python deps from a `pixi.toml` dict back into the manifest.
 
-        Walks the base scope, each env (feature) and each platform (target), bumping declared
-        versions and adding what pixi added, while keeping comments and index aliases intact.
+        Walks the base scope, each feature, and each target (including targets nested inside
+        features), bumping declared versions where they are written and adding what pixi added,
+        while keeping comments and index aliases intact. A target's deps may be declared under
+        any covering selector (`[on.linux]` covers `target.linux-64`), so each pixi scope maps
+        to the ordered candidate paths that can declare it.
         """
-        scopes: list[tuple[tuple[str, ...], list[str]]] = [((), [])]
-        scopes += [(("feature", n), ["envs", n]) for n in self.dig(pixi_doc, "feature")]
-        scopes += [(("target", p), ["on", p]) for p in self.dig(pixi_doc, "target")]
-        for at, dest in scopes:
+        for at, dests in self.scopes(pixi_doc):
             for source, sub in (
                 ("dependencies", ["deps"]),
                 ("pypi-dependencies", ["python", "deps"]),
             ):
                 resolved = self.dig(pixi_doc, *at, source)
                 if resolved:
-                    self.merge(self.table([*dest, *sub]), resolved)
+                    self.fold(resolved, [[*dest, *sub] for dest in dests])
+
+    def scopes(
+        self, pixi_doc: Mapping[str, Toml]
+    ) -> list[tuple[tuple[str, ...], list[list[str]]]]:
+        """Each pixi scope paired with the manifest paths that can declare its deps.
+
+        The `dev` feature is compiled from the manifest's `[dev]` table, so it folds back
+        there rather than into a fabricated `[envs.dev]`.
+        """
+        scopes: list[tuple[tuple[str, ...], list[list[str]]]] = [((), [[]])]
+        for name in self.dig(pixi_doc, "feature"):
+            dest = ["dev"] if name == "dev" else ["envs", name]
+            scopes.append(((("feature", name)), [dest]))
+            for plat in self.dig(pixi_doc, "feature", name, "target"):
+                scopes.append(
+                    (
+                        ("feature", name, "target", plat),
+                        [[*dest, "on", key] for key in platform_scopes(plat)],
+                    )
+                )
+        for plat in self.dig(pixi_doc, "target"):
+            scopes.append((("target", plat), [["on", key] for key in platform_scopes(plat)]))
+        return scopes
+
+    def fold(self, resolved: Mapping[str, Toml], paths: list[list[str]]) -> None:
+        """Bump each resolved dep in the first candidate table declaring it; add new deps.
+
+        Additions land at ``paths[0]`` (the most specific scope), and tables are only created
+        when something is actually added, so a family-scoped declaration is bumped in place
+        instead of duplicated under a concrete platform.
+        """
+        for name, spec in resolved.items():
+            for path in paths:
+                table = self.dig(self.doc, *path)
+                if (key := self.declared_key(table, name)) is not None:
+                    self.bump(cast(Table, table), key, spec)
+                    break
+            else:
+                self.table(paths[0])[name] = spec
 
     def merge(self, table: Table, resolved: Mapping[str, Toml]) -> None:
         """Bump versions of deps already in ``table`` (keeping index/source); add what's new."""
-        declared = {self.normalize(name): name for name in table}
         for name, spec in resolved.items():
-            version = spec["version"] if isinstance(spec, Mapping) else spec
-            key = declared.get(self.normalize(name))
-            if key is None:
-                table[name] = spec
-            elif isinstance(table[key], str):
-                table[key] = version
+            if (key := self.declared_key(table, name)) is not None:
+                self.bump(table, key, spec)
             else:
-                cast(InlineTable, table[key])["version"] = version
+                table[name] = spec
+
+    @classmethod
+    def declared_key(cls, table: Mapping[str, Toml], name: str) -> str | None:
+        """The key in ``table`` declaring ``name``, matched through `normalize` (or `None`)."""
+        target = cls.normalize(name)
+        return next((key for key in table if cls.normalize(key) == target), None)
+
+    @classmethod
+    def bump(cls, table: Table, key: str, spec: Toml) -> None:
+        """Update the declared ``key`` to ``spec``'s resolved version, keeping its shape.
+
+        A spec without a version (git / path / url sources) has nothing to bump, so the
+        declaration stays exactly as written.
+        """
+        version = cls.version_of(spec)
+        if version is None:
+            return
+        if isinstance(table[key], str):
+            table[key] = version
+        else:
+            cast(InlineTable, table[key])["version"] = version
+
+    @staticmethod
+    def version_of(spec: Toml) -> str | None:
+        """The version constraint a resolved spec carries, or `None` when it has none."""
+        if isinstance(spec, Mapping):
+            version = spec.get("version")
+            return version if isinstance(version, str) else None
+        return spec if isinstance(spec, str) else None

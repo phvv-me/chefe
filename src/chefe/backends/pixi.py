@@ -1,7 +1,7 @@
 import json
 import os
 import sys
-from collections.abc import Iterator
+from collections.abc import Generator
 from contextlib import contextmanager
 from functools import cached_property
 from pathlib import Path
@@ -10,6 +10,7 @@ from plumbum import local
 from plumbum.commands.base import BaseCommand
 from plumbum.commands.processes import CommandNotFound
 
+from ..errors import ChefeError
 from ..state import Installed
 from .tool import Tool
 
@@ -37,7 +38,7 @@ class Pixi(Tool):
         return self.manifest.parent / ".pixi" / "envs" / env
 
     @contextmanager
-    def activated(self, env: str = "default") -> Iterator[None]:
+    def activated(self, env: str = "default") -> Generator[None]:
         """Prepend the provisioned env's `bin/` to PATH for the duration of the block.
 
         `chefe install` puts a declared manager (pnpm/yarn/…) inside this env, not on the user's
@@ -56,7 +57,8 @@ class Pixi(Tool):
         one-time download the old `install.sh` did, now triggered lazily from chefe itself.
         """
         sys.stderr.write("chefe: installing pixi engine…\n")
-        self.foreground(local["sh"]["-c", PIXI_INSTALLER])
+        if not self.foreground(local["sh"]["-c", PIXI_INSTALLER]):
+            raise ChefeError("the pixi installer failed; install it manually from https://pixi.sh")
 
     @cached_property
     def command(self) -> BaseCommand:
@@ -86,20 +88,22 @@ class Pixi(Tool):
         """The prefix of global env ``name``; its `bin/` holds python/npm/cargo."""
         return self.home() / "envs" / name
 
-    def global_pip(self, prefix: Path, specs: list[str]) -> bool:
+    def global_pip(self, prefix: Path, specs: list[str]) -> None:
         """Install pypi ``specs`` into the global env's Python with its own pip."""
-        return self.foreground(
-            local[str(prefix / "bin" / "python")]["-m", "pip", "install", *specs]
-        )
+        python = local[str(prefix / "bin" / "python")]
+        if not self.foreground(python["-m", "pip", "install", *specs]):
+            raise ChefeError("global pip install failed (see its output above)")
 
-    def global_npm(self, prefix: Path, specs: list[str]) -> bool:
+    def global_npm(self, prefix: Path, specs: list[str]) -> None:
         """Globally install npm ``specs`` with the global env's npm."""
-        return self.foreground(local[str(prefix / "bin" / "npm")]["install", "-g", *specs])
+        if not self.foreground(local[str(prefix / "bin" / "npm")]["install", "-g", *specs]):
+            raise ChefeError("global npm install failed (see its output above)")
 
-    def global_cargo(self, prefix: Path, specs: list[str]) -> bool:
+    def global_cargo(self, prefix: Path, specs: list[str]) -> None:
         """Install cargo ``specs`` into the global env's prefix with its own cargo."""
         cargo = local[str(prefix / "bin" / "cargo")]
-        return self.foreground(cargo["install", "--root", str(prefix), *specs])
+        if not self.foreground(cargo["install", "--root", str(prefix), *specs]):
+            raise ChefeError("global cargo install failed (see its output above)")
 
     def installed(self, env: str) -> dict[str, Installed]:
         records = json.loads(self.command["list", *self.scope(), "-e", env, "--json"]())
@@ -110,12 +114,17 @@ class Pixi(Tool):
             for rec in records
         }
 
-    def global_install(self, name: str, specs: list[str]) -> bool:
+    def global_install(self, name: str, specs: list[str]) -> None:
         """Install conda ``specs`` into a shared global pixi env named ``name``."""
         argv = ("global", "install", *self.flags(environment=name), *specs)
-        return self.foreground(self.command[argv])
+        if not self.foreground(self.command[argv]):
+            raise ChefeError("`pixi global install` failed (see its output above)")
 
-    def exec(self, specs: tuple[str, ...], args: tuple[str, ...]) -> bool:
-        """Run ``args`` in a throwaway env (like uvx), pulling extra ``specs`` as `--spec`."""
+    def exec(self, specs: tuple[str, ...], args: tuple[str, ...]) -> int:
+        """Run ``args`` in a throwaway env (like uvx), returning the command's exit code.
+
+        Extra ``specs`` ride along as `--spec`. The code is preserved rather than collapsed
+        to a bool so `chefe x` exits with whatever the wrapped command exited.
+        """
         spec_flags = tuple(flag for spec in specs for flag in ("--spec", spec))
-        return self.foreground(self.command["exec", *spec_flags, *args])
+        return self.passthrough(self.command["exec", *spec_flags, *args])

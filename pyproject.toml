@@ -4,10 +4,10 @@ build-backend = "hatchling.build"
 
 [project]
 name = "chefe"
-version = "0.0.18"
+version = "0.0.19"
 description = "One manifest for every package manager | conda, Python, Node.js, Rust & more, behind a single file."
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.14"
 license = "Apache-2.0"
 authors = [{ name = "Pedro Valois", email = "contact@phvv.me" }]
 keywords = [
@@ -24,21 +24,18 @@ classifiers = [
   "Development Status :: 3 - Alpha",
   "Intended Audience :: Developers",
   "License :: OSI Approved :: Apache Software License",
-  "Programming Language :: Python :: 3.11",
-  "Programming Language :: Python :: 3.12",
-  "Programming Language :: Python :: 3.13",
   "Programming Language :: Python :: 3.14",
   "Topic :: Software Development :: Build Tools",
   "Topic :: System :: Software Distribution",
 ]
 dependencies = [
   "cyclopts>=4",
-  "pydantic>=2.7",
+  "pydantic>=2.13",
   "tomlkit>=0.13",
   "packaging>=24",
   "plumbum>=2",
   "rich>=13",
-  "typing-extensions>=4.6",
+  "jinja2>=3.1",
 ]
 
 [project.optional-dependencies]
@@ -71,13 +68,13 @@ packages = ["src/chefe"]
 
 [tool.ruff]
 line-length = 99
-target-version = "py311"
+target-version = "py314"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM"]
 
 [tool.mypy]
-python_version = "3.11"
+python_version = "3.14"
 strict = true
 disallow_any_explicit = true
 plugins = ["pydantic.mypy"]
@@ -115,4 +112,9 @@ exclude_lines = [
   "if TYPE_CHECKING:",
   "if __name__ == .__main__.:",
   "\\.\\.\\.",
+]
+
+[dependency-groups]
+dev = [
+    "inline-snapshot>=0.34.1",
 ]

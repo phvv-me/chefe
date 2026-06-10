@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import pytest
 
 from chefe.compiled import PackageJson, PixiManifest
@@ -107,13 +105,14 @@ def test_package_json_snapshot(manifest: Manifest, snapshot) -> None:  # noqa: A
 
 
 def test_activation_scripts_resolve_from_the_chefe_dir() -> None:
-    """A repo-root activation script is rewritten one level up (the manifest lives in `.chefe/`);
-    an absolute path rides through untouched."""
-    manifest = Manifest.from_toml(
-        """
+    """A repo-root activation script is rewritten one level up (the manifest lives in `.chefe/`),
+    an absolute path rides through untouched, and the generated dotenv loader runs first.
+    `dotenv = false` drops the loader entirely."""
+    body = """
         [workspace]
         name = "demo"
         platforms = ["linux-64"]
+        {dotenv}
 
         [activation]
         scripts = ["scripts/activate.sh", "/opt/hook.sh"]
@@ -121,9 +120,10 @@ def test_activation_scripts_resolve_from_the_chefe_dir() -> None:
         [deps]
         python = ">=3.11"
         """
-    )
-    pixi = PixiManifest.from_manifest(manifest)
-    assert pixi.activation["scripts"] == ["../scripts/activate.sh", "/opt/hook.sh"]
+    pixi = PixiManifest.from_manifest(Manifest.from_toml(body.format(dotenv="")))
+    assert pixi.activation["scripts"] == ["dotenv.sh", "../scripts/activate.sh", "/opt/hook.sh"]
+    plain = PixiManifest.from_manifest(Manifest.from_toml(body.format(dotenv="dotenv = false")))
+    assert plain.activation["scripts"] == ["../scripts/activate.sh", "/opt/hook.sh"]
 
 
 def test_local_path_deps_resolve_from_the_chefe_dir() -> None:

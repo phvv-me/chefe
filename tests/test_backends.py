@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import json
 from collections.abc import Callable
 from pathlib import Path
@@ -7,10 +5,14 @@ from pathlib import Path
 import pytest
 from plumbum import local
 from plumbum.commands.processes import CommandNotFound
+from pytest_mock import MockerFixture
 from pytest_subprocess import FakeProcess
 
 from chefe.backends import Cargo, Node, Pixi, Tool
+from chefe.errors import ChefeError
 from chefe.manager import PackageManager
+from chefe.manifest import Spec
+from chefe.state import Installed
 from chefe.utils import current_platform
 
 
@@ -34,7 +36,7 @@ def test_flags_translate_kwargs_to_cli_args() -> None:
 
 
 def test_tool_skips_when_unavailable() -> None:
-    """A backend whose `available()` is False is a silent success, running nothing."""
+    """A backend whose `available()` is False is a silent no-op, running nothing."""
 
     class Blocked(Tool):
         name = "nonexistent-binary"
@@ -42,23 +44,17 @@ def test_tool_skips_when_unavailable() -> None:
         def available(self) -> bool:
             return False
 
-    assert Blocked()("install") is True
+    assert Blocked()("install") is None
     assert Blocked().exit_code("install") == 0
 
 
-@pytest.mark.parametrize("code", [1, 2, 42, 255])
+@pytest.mark.parametrize("code", [0, 1, 2, 42, 255])
 def test_passthrough_preserves_exit_code(
     code: int, fp: FakeProcess, tool_paths: dict[str, str]
 ) -> None:
-    """A command's exact exit code rides back out of `passthrough`, zero for success."""
+    """A command's exact exit code rides back out of `passthrough`, zero for a clean success."""
     fp.register([tool_paths["pixi"], fp.any()], returncode=code)
     assert Tool.passthrough(local[tool_paths["pixi"]]["run"]) == code
-
-
-def test_passthrough_returns_zero_on_success(fp: FakeProcess, tool_paths: dict[str, str]) -> None:
-    """A command that exits cleanly passes through as code zero."""
-    fp.register([tool_paths["pixi"], fp.any()], returncode=0)
-    assert Tool.passthrough(local[tool_paths["pixi"]]["run"]) == 0
 
 
 @pytest.mark.parametrize("code", [0, 7])
@@ -119,28 +115,52 @@ def test_cargo_installed_parses_crates_toml(tmp_path: Path) -> None:
     assert cargo.installed("missing") == {}
 
 
-def test_cargo_sync_installs_and_uninstalls(
-    fp: FakeProcess, tmp_path: Path, tool_paths: dict[str, str]
+def test_cargo_sync_reconciles_declared_against_installed(
+    mocker: MockerFixture, tmp_path: Path
 ) -> None:
-    """sync installs declared-but-missing crates and uninstalls those no longer declared.
-
-    `kept` is already present and skipped; `stale` is no longer declared and uninstalled;
-    a `*` spec installs without a `--version` pin.
+    """sync makes the env's crates match the declaration through `pixi run cargo`, pinned to the
+    synced env: it uninstalls crates no longer declared, installs declared-but-missing ones
+    (with `--version` only for a real pin), reinstalls a drifted crate with `--force`, and
+    skips a satisfied one. Each call carries `--environment <env>` so an env-scoped rust resolves.
     """
-    cargo = Cargo(tmp_path, Pixi(tmp_path))
-    root = cargo.root("default")
-    root.mkdir(parents=True, exist_ok=True)
-    (root / ".crates.toml").write_text(
-        '[v1]\n"stale 1.0.0 (x)" = ["stale"]\n"kept 2.0.0 (x)" = ["kept"]\n'
+    pixi = Pixi(tmp_path)
+    cargo = Cargo(tmp_path, pixi)
+    mocker.patch.object(
+        Cargo,
+        "installed",
+        return_value={
+            "stale": Installed(version="1.0.0", kind="cargo"),
+            "drift": Installed(version="0.1.0", kind="cargo"),
+            "kept": Installed(version="2.0.0", kind="cargo"),
+        },
+        autospec=True,
     )
-    fp.keep_last_process(True)
-    fp.register([tool_paths["pixi"], "run", fp.any()], stdout="")
-    cargo.sync("default", {"fresh": ">=2.0", "wild": "*", "kept": "2.0.0"})
-    calls = [list(c) for c in fp.calls if "cargo" in c]
-    assert any("uninstall" in c and "stale" in c for c in calls)
-    assert any("install" in c and "fresh" in c and "--version" in c for c in calls)
-    assert any("install" in c and "wild" in c and "--version" not in c for c in calls)
-    assert not any("install" in c and "kept" in c for c in calls)
+    calls: list[tuple[str, ...]] = []
+    mocker.patch.object(
+        Pixi,
+        "__call__",
+        side_effect=lambda self, verb, *args, **flags: calls.append(
+            (verb, *Tool.flags(**flags), *args)
+        ),
+        autospec=True,
+    )
+    declared = {
+        "fresh": Spec.model_validate(">=2.0"),
+        "wild": Spec.model_validate("*"),
+        "drift": Spec.model_validate(">=0.2"),
+        "kept": Spec.model_validate("2.0.0"),
+        "pinned": Spec.model_validate({"version": ">=0.1", "locked": True}),
+    }
+    cargo.sync("serving", declared)
+    at = str(pixi.env_prefix("serving"))
+    assert all(call[:3] == ("run", "--environment", "serving") for call in calls)
+    bodies = [call[3:] for call in calls]
+    assert ("cargo", "uninstall", "--root", at, "stale") in bodies
+    assert ("cargo", "install", "--root", at, "--version", ">=2.0", "fresh") in bodies
+    assert ("cargo", "install", "--root", at, "wild") in bodies  # `*` carries no `--version`
+    assert ("cargo", "install", "--root", at, "--version", ">=0.2", "--force", "drift") in bodies
+    assert ("cargo", "install", "--root", at, "--version", ">=0.1", "--locked", "pinned") in bodies
+    assert not any("kept" in body for body in bodies)  # satisfied, skipped
 
 
 def test_pixi_scope_pins_manifest_path(tmp_path: Path) -> None:
@@ -295,3 +315,44 @@ def test_global_install_spans_all_ecosystems(
     assert [str(prefix / "bin" / "python"), "-m", "pip", "install", "ruff>=0.6"] in cmds
     assert [str(prefix / "bin" / "npm"), "install", "-g", "prettier@>=3"] in cmds
     assert [str(prefix / "bin" / "cargo"), "install", "--root", str(prefix), "bat"] in cmds
+
+
+@pytest.mark.parametrize(
+    ("call", "match"),
+    [
+        (lambda p, prefix: p("install"), r"`pixi install` failed"),
+        (lambda p, prefix: p.global_install("demo", ["ripgrep"]), r"`pixi global install` failed"),
+        (lambda p, prefix: p.global_pip(prefix, ["ruff"]), "global pip install failed"),
+        (lambda p, prefix: p.global_npm(prefix, ["prettier"]), "global npm install failed"),
+        (lambda p, prefix: p.global_cargo(prefix, ["bat"]), "global cargo install failed"),
+        (lambda p, prefix: p.bootstrap(), "pixi installer failed"),
+    ],
+    ids=["call", "global-install", "global-pip", "global-npm", "global-cargo", "bootstrap"],
+)
+def test_every_seam_raises_chefe_error_on_failure(
+    call: Callable[[Pixi, Path], object],
+    match: str,
+    fp: FakeProcess,
+    tool_paths: dict[str, str],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A failing tool at any seam surfaces as a ChefeError instead of a green no-op: a backend
+    call, each ecosystem global-install helper, and the one-time pixi bootstrap installer."""
+    monkeypatch.setenv("PIXI_HOME", str(tmp_path / "pixi"))
+    prefix = tmp_path / "pixi" / "envs" / "demo"
+    fp.register([tool_paths["pixi"], fp.any()], returncode=1)
+    fp.register([str(local["sh"].executable), fp.any()], returncode=1)
+    for binary in ("python", "npm", "cargo"):
+        fp.register([str(prefix / "bin" / binary), fp.any()], returncode=1)
+    with pytest.raises(ChefeError, match=match):
+        call(Pixi(tmp_path), prefix)
+
+
+@pytest.mark.parametrize("code", [0, 7])
+def test_exec_preserves_exit_code(
+    fp: FakeProcess, tool_paths: dict[str, str], tmp_path: Path, code: int
+) -> None:
+    """`chefe x` passes the wrapped command's exit code through."""
+    fp.register([tool_paths["pixi"], fp.any()], returncode=code)
+    assert Pixi(tmp_path).exec((), ("ruff", "check")) == code

@@ -1,15 +1,13 @@
 from collections.abc import Callable
 from functools import cached_property
 from pathlib import Path
-from typing import TypeVar
 
 from plumbum import FG, TF, local
 from plumbum.commands.base import BaseCommand
 from plumbum.commands.processes import ProcessExecutionError
 
+from ..errors import ChefeError
 from ..state import Installed
-
-T = TypeVar("T")
 
 
 class Tool:
@@ -76,15 +74,17 @@ class Tool:
                 out.append(str(value))
         return tuple(out)
 
-    def __call__(self, verb: str, *args: str, **flags: bool | str | None) -> bool:
-        """Run the backend in the foreground, returning success; a no-op if unavailable.
+    def __call__(self, verb: str, *args: str, **flags: bool | str | None) -> None:
+        """Run the backend in the foreground; a no-op if unavailable, `ChefeError` on failure.
 
         Keyword ``flags`` translate to CLI args (`pypi=True` → `--pypi`, `feature=env` →
-        `--feature env`), inserted before the positional ``args``.
+        `--feature env`), inserted before the positional ``args``. Raising on failure keeps
+        a failed solve or install from being reported as green success by the caller.
         """
         if not self.available():
-            return True
-        return self.within_cwd(lambda command: self.foreground(command), verb, *args, **flags)
+            return
+        if not self.within_cwd(self.foreground, verb, *args, **flags):
+            raise ChefeError(f"`{self.name} {verb}` failed (see its output above)")
 
     def exit_code(self, verb: str, *args: str, **flags: bool | str | None) -> int:
         """Run in the foreground and return the command's exact exit code (``0`` if unavailable).
@@ -96,7 +96,7 @@ class Tool:
             return 0
         return self.within_cwd(lambda command: self.passthrough(command), verb, *args, **flags)
 
-    def within_cwd(
+    def within_cwd[T](
         self,
         action: Callable[[BaseCommand], T],
         verb: str,

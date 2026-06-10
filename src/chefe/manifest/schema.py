@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import tomllib
 from collections.abc import Mapping
 from importlib.metadata import version
@@ -11,6 +9,7 @@ from pydantic import ConfigDict, Field, model_serializer, model_validator
 from .. import NAME
 from ..base import FlexModel, Model, Toml
 from ..state import Declared
+from ..utils import platform_scopes
 
 # A pixi/mise task: a bare command string, or a table (run/cmd, depends, cwd, ...).
 Task = str | dict[str, Toml]
@@ -107,34 +106,18 @@ class Scope(Model):
 
     deps: dict[str, Spec] = {}
 
-    @model_validator(mode="after")
-    def toolchain_tables_must_be_declared(self) -> Self:
-        """Reject a runtime-keyed table without a matching package in `[deps]`.
-
-        The usual cause is a table from a newer chefe than the one installed, so the message leads
-        with the upgrade path (naming the running version) before the declare-or-remove fix.
-        """
-        missing = [
-            name
-            for name, spec in (self.model_extra or {}).items()
-            if isinstance(spec, Mapping) and name not in self.deps
-        ]
-        if missing:
-            names = ", ".join(f"[{name}]" for name in sorted(missing))
-            raise ValueError(
-                f"{names} has no matching package in [deps]. This is often a table from a newer "
-                f"{NAME} than the {version(NAME)} you have, so try `pip install -U {NAME}`, "
-                f"otherwise add it to [deps] or remove it."
-            )
-        return self
-
     def toolchains(self) -> dict[str, ToolchainSpec]:
-        """Runtime-keyed toolchain tables whose names are declared in `[deps]`."""
+        """Runtime-keyed toolchain tables carried by this scope.
+
+        Declaration of the runtime itself is enforced once, at the manifest level, against
+        the union of this scope's and the root `[deps]`, so an overlay like
+        `[on.linux.python.deps]` needs no redundant local `python = "*"`.
+        """
         extras = self.model_extra or {}
         return {
             name: ToolchainSpec.model_validate(spec)
             for name, spec in extras.items()
-            if name in self.deps and isinstance(spec, Mapping)
+            if isinstance(spec, Mapping)
         }
 
     def groups(self) -> dict[str, dict[str, Spec]]:
@@ -150,11 +133,10 @@ class Scope(Model):
         Each spec renders to its TOML form (a version string or an inline table), so the
         result is a plain nested `Toml` that pixi validates back into `Spec` on its own fields.
         """
-        deps = dict(self.deps)
         out: dict[str, Toml] = {}
-        if deps:
-            out["dependencies"] = {name: spec.to_toml() for name, spec in deps.items()}
-        if python := self.toolchains().get("python"):
+        if self.deps:
+            out["dependencies"] = {name: spec.to_toml() for name, spec in self.deps.items()}
+        if (python := self.toolchains().get("python")) and python.all_deps():
             out["pypi-dependencies"] = {
                 name: spec.with_index(indexes).to_toml()
                 for name, spec in python.all_deps().items()
@@ -235,12 +217,43 @@ class Manifest(Scope):
     tasks: dict[str, Task] = {}
 
     @model_validator(mode="after")
-    def default_env_is_reserved(self) -> Self:
-        """Reject `[envs.default]` because `default` is the implicit base environment."""
-        if "default" in self.envs:
+    def reserved_env_names(self) -> Self:
+        """Reject `[envs.default]` and `[envs.dev]`: the base manifest is the default
+        environment and `[dev]` already compiles to the `dev` feature."""
+        if reserved := {"default", "dev"} & set(self.envs):
+            names = ", ".join(f"[envs.{name}]" for name in sorted(reserved))
             raise ValueError(
-                "[envs.default] is reserved. The base manifest is the default environment, "
-                "so use another env name."
+                f"{names} is reserved. The base manifest is the default environment and "
+                "[dev] is the dev feature, so use another env name."
+            )
+        return self
+
+    @model_validator(mode="after")
+    def toolchain_tables_must_be_declared(self) -> Self:
+        """Reject a runtime-keyed table whose runtime is in neither its scope's nor root `[deps]`.
+
+        The usual cause is a table from a newer chefe than the one installed, so the message leads
+        with the upgrade path (naming the running version) before the declare-or-remove fix.
+        """
+        root = frozenset(self.deps)
+        scopes: list[tuple[str, Scope, frozenset[str]]] = [("", self, root)]
+        scopes.append(("dev.", self.dev, root))
+        scopes += [(f"on.{plat}.", scope, root) for plat, scope in self.on.items()]
+        for name, env in self.envs.items():
+            local = root | frozenset(env.deps)
+            scopes.append((f"envs.{name}.", env, local))
+            scopes += [(f"envs.{name}.on.{plat}.", scope, local) for plat, scope in env.on.items()]
+        missing = sorted(
+            f"[{at}{table}]"
+            for at, scope, allowed in scopes
+            for table, spec in (scope.model_extra or {}).items()
+            if isinstance(spec, Mapping) and table not in allowed | frozenset(scope.deps)
+        )
+        if missing:
+            raise ValueError(
+                f"{', '.join(missing)} has no matching package in [deps]. This is often a table "
+                f"from a newer {NAME} than the {version(NAME)} you have, so try "
+                f"`pip install -U {NAME}`, otherwise add it to [deps] or remove it."
             )
         return self
 
@@ -267,13 +280,19 @@ class Manifest(Scope):
         }
 
     def active_scopes(self, env: str, platform: str) -> list[Scope]:
-        """Base, matching platform overlays, and the named env scope when active."""
-        scopes: list[Scope] = [
-            self,
-            *(s for plat, s in self.on.items() if platform.startswith(plat)),
-        ]
-        if env != "default" and env in self.envs:
-            scopes.append(self.envs[env])
+        """The scopes contributing deps for ``env`` on ``platform``.
+
+        A `no-default` env stands alone (pixi excludes the base feature there), and a named
+        env brings its own platform overlays. Platform matching covers families, so
+        `[on.linux]` and `[on.unix]` are active on `linux-64`.
+        """
+        selectors = platform_scopes(platform)
+        named = self.envs.get(env) if env != "default" else None
+        scopes: list[Scope] = []
+        if named is None or not named.no_default:
+            scopes += [self, *(s for plat, s in self.on.items() if plat in selectors)]
+        if named is not None:
+            scopes += [named, *(s for plat, s in named.on.items() if plat in selectors)]
         return scopes
 
     def toolchains_for(self, env: str, platform: str) -> dict[str, ToolchainSpec]:

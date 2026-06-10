@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import json
 import tomllib
 from importlib.metadata import version
@@ -11,8 +9,9 @@ from hypothesis import strategies as st
 from pydantic import ValidationError
 
 from chefe.compiled import PackageJson, PixiManifest
+from chefe.errors import ChefeError
 from chefe.manifest import Document, Manifest, Scope, Spec
-from chefe.utils import satisfied
+from chefe.utils import platform_scopes, satisfied
 
 from .strategies import dep_maps, manifests, specs, toolchain_names
 
@@ -119,16 +118,22 @@ def fold(scopes: list[Scope]) -> dict[str, str]:
 @given(manifests())
 @settings(suppress_health_check=[HealthCheck.too_slow])
 def test_declared_matches_active_scope_fold(manifest: Manifest) -> None:
-    """declared() equals folding exactly the active scopes: base, prefix-matched overlays, env."""
+    """declared() folds exactly the active scopes: base plus covering overlays, then the env
+    with its own overlays; a `no-default` env stands alone."""
     platform = manifest.workspace.platforms[0]
-    overlays = [s for plat, s in manifest.on.items() if platform.startswith(plat)]
+    selectors = platform_scopes(platform)
+    overlays = [s for plat, s in manifest.on.items() if plat in selectors]
 
     base = manifest.declared("default", platform)
     assert {n: d.source for n, d in base.items()} == fold([manifest, *overlays, manifest.dev])
 
     for env_name, env in manifest.envs.items():
         scoped = manifest.declared(env_name, platform)
-        assert {n: d.source for n, d in scoped.items()} == fold([manifest, *overlays, env])
+        env_overlays = [s for plat, s in env.on.items() if plat in selectors]
+        active = [env, *env_overlays]
+        if not env.no_default:
+            active = [manifest, *overlays, *active]
+        assert {n: d.source for n, d in scoped.items()} == fold(active)
         # An env's exclusive dep (not in any active default scope) is absent from default.
         for name in env.deps:
             if name not in fold([manifest, *overlays, manifest.dev]):
@@ -351,13 +356,10 @@ def test_runtime_keyed_toolchains_are_discovered_from_deps() -> None:
             name = "toolchains"
             platforms = ["linux-64"]
 
-            [deps]
-            nodejs = "*"
-
             [envs.frontend.nodejs.deps]
             vite = ">=8"
             """,
-            r"\[nodejs\] has no matching package in \[deps\]",
+            r"\[envs.frontend.nodejs\] has no matching package in \[deps\]",
         ),
         (
             """
@@ -380,6 +382,17 @@ def test_runtime_keyed_toolchains_are_discovered_from_deps() -> None:
             ruff = "*"
             """,
             r"\[envs.default\] is reserved",
+        ),
+        (
+            """
+            [workspace]
+            name = "envs"
+            platforms = ["linux-64"]
+
+            [envs.dev.deps]
+            ruff = "*"
+            """,
+            r"\[envs.dev\] is reserved",
         ),
     ],
 )
@@ -493,8 +506,13 @@ def test_dev_conda_and_python_become_a_pixi_dev_feature() -> None:
 
 @given(dep_maps())
 def test_package_json_mirrors_nodejs_deps(deps: dict[str, Spec]) -> None:
-    """package.json exists iff `[nodejs.deps]` is non-empty, and mirrors every package version."""
+    """package.json exists iff `[nodejs.deps]` is non-empty and mirrors every version; a spec
+    npm cannot express (index, path, git, url) fails fast instead of degrading to `*`."""
     manifest = manifest_with_nodejs_deps(deps)
+    if any(spec.index or spec.model_extra for spec in deps.values()):
+        with pytest.raises(ChefeError, match="cannot express"):
+            PackageJson.from_manifest(manifest)
+        return
     package = PackageJson.from_manifest(manifest)
     if not deps:
         assert package is None

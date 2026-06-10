@@ -25,6 +25,9 @@
   [system-requirements]
   cuda = "13.0"
   
+  [activation]
+  scripts = ["dotenv.sh"]
+  
   [activation.env]
   LOG_LEVEL = "info"
   
@@ -84,6 +87,9 @@
   version = "0.1.0"
   channels = ["conda-forge"]
   platforms = ["linux-64"]
+  
+  [activation]
+  scripts = ["dotenv.sh"]
   
   [dependencies]
   python = ">=3.11"

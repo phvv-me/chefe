@@ -2,18 +2,14 @@ import functools
 from collections.abc import Callable
 
 from cyclopts import App
-from rich.markup import escape
-from typing_extensions import ParamSpec, TypeVar
 
 from . import NAME
+from .console import markup
 from .errors import ChefeError
 from .manager import PackageManager
 
-P = ParamSpec("P")
-R = TypeVar("R")
 
-
-def handled(manager: PackageManager, method: Callable[P, R]) -> Callable[P, R]:
+def handled[**P, R](manager: PackageManager, method: Callable[P, R]) -> Callable[P, R]:
     """Wrap a command so Chefe's own errors print cleanly instead of tracebacking."""
 
     @functools.wraps(method)
@@ -21,7 +17,7 @@ def handled(manager: PackageManager, method: Callable[P, R]) -> Callable[P, R]:
         try:
             return method(*args, **kwargs)
         except ChefeError as error:
-            manager.console.print(f"[red]error[/red]: {escape(str(error))}")
+            manager.console.print(markup(t"[red]error[/red]: {error}"))
             raise SystemExit(1) from None
 
     return run

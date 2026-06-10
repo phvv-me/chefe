@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 from pathlib import Path
 
 import pytest
@@ -29,10 +27,12 @@ def test_module_lines_are_guarded(tmp_path: Path) -> None:
     assert "if command -v module >/dev/null 2>&1; then" in script
 
 
-def test_empty_modules_emit_no_load(tmp_path: Path) -> None:
-    """With no modules configured the load line carries nothing, still valid bash."""
+def test_empty_modules_emit_no_module_block(tmp_path: Path) -> None:
+    """With no modules configured the whole module block is omitted, so sourcing the script
+    never purges whatever stack the surrounding job had loaded."""
     script = render(tmp_path, ())
-    assert "module load \n" in script or "module load\n" in script
+    assert "module purge" not in script
+    assert "module load" not in script
     assert "export FOO=bar" in script
 
 
@@ -78,3 +78,19 @@ def test_module_init_snippet_sources_first_existing(tmp_path: Path) -> None:
     assert out.strip() == "1"
     nothing = module_init_snippet([str(tmp_path / "absent.sh")])
     assert local["bash"]["-c", f"{nothing}; echo done"]().strip() == "done"
+
+
+def test_activation_relaxes_nounset_around_sourcing(tmp_path: Path) -> None:
+    """Sourcing under `set -eu` survives nounset-unsafe activation hooks and restores `set -u`."""
+    script = render(tmp_path, MODULES, hook='echo "hook ran: ${UNDEFINED_VAR:-}"')
+    assert "set +u" in script and "set -u" in script
+    path = tmp_path / "activate.sh"
+    path.write_text(script)
+    probe = tmp_path / "probe.sh"
+    probe.write_text(
+        f'set -eu\nsource "{path}"\n'
+        "case $- in *u*) echo NOUNSET_RESTORED;; *) echo NOUNSET_LOST;; esac\n"
+    )
+    result = local["bash"][str(probe)]()
+    assert "hook ran" in result
+    assert "NOUNSET_RESTORED" in result

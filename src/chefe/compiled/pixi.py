@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import tomlkit
 from pydantic import Field
 
@@ -74,7 +72,8 @@ class PixiManifest(Model):
         else:
             renamed = {"run": "cmd", "depends": "depends-on", "dir": "cwd"}
             out = {renamed.get(key, key): value for key, value in spec.items()}
-        out["cwd"] = f"../{out['cwd']}" if "cwd" in out else ".."
+        cwd = str(out.get("cwd", ""))
+        out["cwd"] = cwd if cwd.startswith("/") else f"../{cwd}" if cwd else ".."
         return out
 
     @classmethod
@@ -84,8 +83,11 @@ class PixiManifest(Model):
         indexes = python.indexes
         variables = {k: v for k, v in m.env.items() if not k.startswith("_.")}
         # the manifest is emitted under `.chefe/`, so a repo-root script path
-        # resolves one directory up from where pixi runs it
+        # resolves one directory up from where pixi runs it; the generated dotenv
+        # loader lives beside the manifest and runs first so user scripts see the vars
         scripts = [path if path.startswith("/") else f"../{path}" for path in m.activation.scripts]
+        if m.workspace.dotenv:
+            scripts.insert(0, "dotenv.sh")
         activation: dict[str, Toml] = {
             **({"env": variables} if variables else {}),
             **({"scripts": scripts} if scripts else {}),
@@ -100,7 +102,7 @@ class PixiManifest(Model):
         }
         # `[dev.*]` deps become a `dev` feature added to the default environment, so
         # `chefe install` provisions dev tooling beside the runtime deps.
-        if dev := cls.dev_feature(m, indexes):
+        if dev := m.dev.tables(indexes):
             feature["dev"] = dev
             environments["default"] = {"features": ["dev"]}
         workspace: dict[str, Toml] = {
@@ -121,18 +123,3 @@ class PixiManifest(Model):
             "tasks": {name: cls.task(spec) for name, spec in m.tasks.items()},
         }
         return cls.model_validate(reparent(payload))
-
-    @staticmethod
-    def dev_feature(m: Manifest, indexes: dict[str, str]) -> dict[str, Toml]:
-        """The `[dev.*]` conda + Python deps as a pixi feature."""
-        deps = dict(m.dev.deps)
-        python = m.dev.toolchains().get("python")
-        feature: dict[str, Toml] = {}
-        if deps:
-            feature["dependencies"] = {name: spec.to_toml() for name, spec in deps.items()}
-        if python and python.all_deps():
-            feature["pypi-dependencies"] = {
-                name: spec.with_index(indexes).to_toml()
-                for name, spec in python.all_deps().items()
-            }
-        return feature

@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 from collections.abc import Callable
 from pathlib import Path
 
@@ -204,7 +202,7 @@ def test_add_pixi_languages_go_through_pixi_and_pull(
             ("requests",),
             "",
             "",
-            "Language cannot be empty",
+            r"Language `` is not declared in \[deps\]",
             "",
         ),
         (
@@ -285,7 +283,7 @@ def test_add_reports_language_errors(
             [dev.nodejs.deps]
             prettier = "*"
             """,
-            r"dev: \[nodejs\] has no matching package",
+            r"\[dev.nodejs\] has no matching package",
         ),
         (
             """
@@ -295,7 +293,7 @@ def test_add_reports_language_errors(
             [on.linux-64.nodejs.deps]
             prettier = "*"
             """,
-            r"on.linux-64: \[nodejs\] has no matching package",
+            r"\[on.linux-64.nodejs\] has no matching package",
         ),
         (
             """
@@ -305,7 +303,7 @@ def test_add_reports_language_errors(
             [envs.frontend.nodejs.deps]
             prettier = "*"
             """,
-            r"envs.frontend: \[nodejs\] has no matching package",
+            r"\[envs.frontend.nodejs\] has no matching package",
         ),
         (
             """
@@ -450,19 +448,22 @@ def test_update_and_upgrade_and_shell_and_run(
     assert {"update", "upgrade", "shell", "run"} <= {c[1] for c in recording_backends}
 
 
-@pytest.mark.parametrize("code", [0, 3])
-def test_run_exits_with_the_task_code(
-    workspace: Workspace, monkeypatch: pytest.MonkeyPatch, code: int
+@pytest.mark.parametrize("code", [0, 3, 5])
+@pytest.mark.parametrize("verb", ["run", "shell"])
+def test_passthrough_verbs_exit_with_the_inner_code(
+    workspace: Workspace, monkeypatch: pytest.MonkeyPatch, verb: str, code: int
 ) -> None:
-    """`run` exits with the task's own code, staying silent only when it succeeds."""
+    """`run` and `shell` both propagate the inner command's exit status through the pixi
+    exit-code seam, raising `SystemExit(code)` on failure and staying silent on success."""
     manager = workspace("[deps]\npython = '*'\n")
     monkeypatch.setattr(Pixi, "exit_code", lambda self, *a, **k: code)
+    invoke = (lambda: manager.run("build")) if verb == "run" else manager.shell
     if code:
         with pytest.raises(SystemExit) as exit_info:
-            manager.run("build")
+            invoke()
         assert exit_info.value.code == code
     else:
-        assert manager.run("build") is None
+        assert invoke() is None
 
 
 def test_run_and_shell_expose_npm_bins(
@@ -549,3 +550,16 @@ def test_tree_renders_against_installed(
 def test_row_status_buckets(spec: str, version: str | None, bucket: str) -> None:
     """row_status maps a declared-vs-installed pair to the right tally bucket."""
     assert PackageManager.row_status(spec, version)[2] == bucket
+
+
+@pytest.mark.parametrize("dotenv", [True, False])
+def test_sync_writes_the_dotenv_loader_only_when_enabled(tmp_path: Path, dotenv: bool) -> None:
+    """`workspace.dotenv` controls the generated loader and its activation entry."""
+    (tmp_path / "chefe.toml").write_text(
+        f'[workspace]\nname = "w"\nplatforms = ["linux-64"]\ndotenv = {str(dotenv).lower()}\n'
+        '\n[deps]\npython = "*"\n'
+    )
+    manager = PackageManager(tmp_path)
+    manager.sync()
+    assert (manager.out / "dotenv.sh").exists() is dotenv
+    assert ('"dotenv.sh"' in manager.pixi.manifest.read_text()) is dotenv

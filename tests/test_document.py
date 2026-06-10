@@ -1,38 +1,18 @@
-from __future__ import annotations
-
-import tempfile
-from collections.abc import Iterator
-from contextlib import contextmanager
-from pathlib import Path
-
+import pytest
 import tomlkit
 from hypothesis import given
 from hypothesis import strategies as st
 
 from chefe.base import Toml
+from chefe.errors import ChefeError
 from chefe.manifest import Document
 from chefe.utils import satisfied
 
+from .conftest import document_from_toml, version_maps
 from .strategies import PACKAGES, VERSIONS, sources
 
 # A Document edit can target any source and any (or no) named env.
 ENVS = st.sampled_from(["", "serving", "dev"])
-
-
-def version_maps(versions: st.SearchStrategy[str]) -> st.SearchStrategy[dict[str, str]]:
-    """Dependency version maps whose keys stay unique after `Document.normalize`."""
-    return st.lists(PACKAGES, max_size=4, unique_by=Document.normalize).flatmap(
-        lambda names: st.fixed_dictionaries({name: versions for name in names})
-    )
-
-
-@contextmanager
-def document_from_toml(text: str = '[workspace]\nname = "w"\n') -> Iterator[Document]:
-    """Create an on-disk editable manifest from TOML text for one test example."""
-    with tempfile.TemporaryDirectory(prefix="chefe-") as root:
-        path = Path(root) / "chefe.toml"
-        path.write_text(text)
-        yield Document(path)
 
 
 @given(
@@ -90,59 +70,205 @@ def test_pull_is_monotonic(declared: dict[str, str], resolved: dict[str, str]) -
             assert table[match] == version  # bumped or added at the resolved version
 
 
-@given(version=st.sampled_from(["9.9.9", "10.0.0"]))
-def test_pull_preserves_index_alias_on_inline_specs(version: str) -> None:
-    """Bumping an inline-table spec keeps its index alias, replacing only the version."""
+@pytest.mark.parametrize(
+    ("declared", "resolved", "expected"),
+    [
+        # A bare-string version is replaced wholesale by the resolved version.
+        ({"ruff": ">=0.6"}, {"ruff": {"version": "0.9.0"}}, {"ruff": "0.9.0"}),
+        # Bumping an inline-table spec keeps its index alias, replacing only the version.
+        (
+            {"torch": {"version": ">=1.0", "index": "pytorch"}},
+            {"torch": {"version": "2.5.0"}},
+            {"torch": {"version": "2.5.0", "index": "pytorch"}},
+        ),
+        # A versionless (path/git/url) resolved spec has nothing to bump, so it stays as written.
+        (
+            {"lote": {"path": "../packages/lote"}},
+            {"lote": {"path": "../x"}, "kernel": {"url": "https://example.com/k.whl"}},
+            {"lote": {"path": "../packages/lote"}, "kernel": {"url": "https://example.com/k.whl"}},
+        ),
+    ],
+    ids=["bare-string", "inline-keeps-index", "versionless-untouched-and-added"],
+)
+def test_merge_bumps_in_place_preserving_shape(
+    declared: dict[str, Toml],
+    resolved: dict[str, Toml],
+    expected: dict[str, Toml],
+) -> None:
+    """merge bumps a declared dep's version while keeping its written shape, skips versionless
+    specs that carry no version, and adds genuinely new deps verbatim."""
     with document_from_toml() as document:
         table = document.table(["python", "deps"])
-        inline = tomlkit.inline_table()
-        inline.update({"version": ">=1.0", "index": "pytorch"})
-        table["torch"] = inline
+        for name, value in declared.items():
+            if isinstance(value, str):
+                table[name] = value
+            else:
+                inline = tomlkit.inline_table()
+                inline.update(value)
+                table[name] = inline
 
-        document.merge(table, {"torch": {"version": version}})
+        document.merge(table, resolved)
 
-        assert table["torch"]["index"] == "pytorch"
-        assert table["torch"]["version"] == version
-
-
-def test_pull_folds_base_env_and_target(document: Document) -> None:
-    """pull walks the base scope, each feature and each target, bumping and adding deps."""
-    document.table(["deps"])["python"] = ">=3.11"
-    document.table(["python", "deps"])["ruff"] = ">=0.6"
-    document.table(["envs", "serving", "python", "deps"])["vllm"] = ">=0.6"
-    document.table(["on", "linux-64", "deps"])["cupy"] = ">=13"
-
-    pixi_doc: dict[str, Toml] = {
-        "dependencies": {"python": "3.12.0", "numpy": "2.0.0"},
-        "pypi-dependencies": {"ruff": {"version": "0.9.0"}},
-        "feature": {"serving": {"pypi-dependencies": {"vllm": "0.7.0"}}},
-        "target": {"linux-64": {"dependencies": {"cupy": "13.2.0"}}},
-    }
-    document.pull(pixi_doc)
-
-    assert document.table(["deps"])["python"] == "3.12.0"  # bumped
-    assert document.table(["deps"])["numpy"] == "2.0.0"  # added
-    assert document.table(["python", "deps"])["ruff"] == "0.9.0"
-    assert document.table(["envs", "serving", "python", "deps"])["vllm"] == "0.7.0"
-    assert document.table(["on", "linux-64", "deps"])["cupy"] == "13.2.0"
+        assert {
+            name: dict(value) if not isinstance(value, str) else value
+            for name, value in table.items()
+        } == expected
 
 
-def test_remove_runtime_package_drops_matching_toolchain_table() -> None:
-    """Removing a runtime from `[deps]` removes the matching runtime-keyed table."""
+@pytest.mark.parametrize(
+    ("manifest_body", "pixi_doc", "checks"),
+    [
+        # Base scope: conda `[dependencies]` folds into `[deps]`, bumping and adding.
+        (
+            '[deps]\npython = ">=3.11"\n',
+            {"dependencies": {"python": "3.12.0", "numpy": "2.0.0"}},
+            [(["deps"], "python", "3.12.0"), (["deps"], "numpy", "2.0.0")],
+        ),
+        # Base Python: `[pypi-dependencies]` folds into `[python.deps]`.
+        (
+            '[python.deps]\nruff = ">=0.6"\n',
+            {"pypi-dependencies": {"ruff": {"version": "0.9.0"}}},
+            [(["python", "deps"], "ruff", "0.9.0")],
+        ),
+        # A named feature N folds into `[envs.N...]`.
+        (
+            '[envs.serving.python.deps]\nvllm = ">=0.6"\n',
+            {"feature": {"serving": {"pypi-dependencies": {"vllm": "0.7.0"}}}},
+            [(["envs", "serving", "python", "deps"], "vllm", "0.7.0")],
+        ),
+        # A root target folds into `[on.<platform>]`.
+        (
+            '[on.linux-64.deps]\ncupy = ">=13"\n',
+            {"target": {"linux-64": {"dependencies": {"cupy": "13.2.0"}}}},
+            [(["on", "linux-64", "deps"], "cupy", "13.2.0")],
+        ),
+        # The pixi `dev` feature comes from `[dev]`, so it folds there, never `[envs.dev]`.
+        (
+            '[dev.deps]\nruff = "*"\n',
+            {"feature": {"dev": {"dependencies": {"ruff": ">=0.9,<0.10"}}}},
+            [(["dev", "deps"], "ruff", ">=0.9,<0.10")],
+        ),
+        # A target nested inside a feature folds into that env's `[on.<platform>]` overlay.
+        (
+            '[envs.serving.on.linux-64.deps]\nvllm = ">=0.19"\n',
+            {
+                "feature": {
+                    "serving": {
+                        "target": {"linux-64": {"dependencies": {"vllm": ">=0.19.1,<0.20"}}}
+                    }
+                }
+            },
+            [(["envs", "serving", "on", "linux-64", "deps"], "vllm", ">=0.19.1,<0.20")],
+        ),
+    ],
+    ids=["base-conda", "base-python", "feature", "root-target", "dev-feature", "feature-target"],
+)
+def test_pull_maps_each_pixi_scope_to_its_manifest_path(
+    manifest_body: str,
+    pixi_doc: dict[str, Toml],
+    checks: list[tuple[list[str], str, str]],
+) -> None:
+    """pull routes each pixi scope (base, feature, target, dev feature, feature-target) back into
+    the manifest path that declares it, bumping the declared version in place."""
+    with document_from_toml(f'[workspace]\nname = "w"\n\n{manifest_body}') as document:
+        document.pull(pixi_doc)
+        for path, key, expected in checks:
+            assert document.table(path)[key] == expected
+        # The dev feature never fabricates an `[envs.dev]` table.
+        if "dev" in pixi_doc.get("feature", {}):
+            assert "envs" not in document.doc
+
+
+def test_pull_bumps_family_scope_instead_of_duplicating_concrete_platform() -> None:
+    """A dep declared under a family selector is bumped there when pixi resolves it for a
+    concrete platform, instead of being duplicated into a new `[on.<platform>]` table.
+
+    Kept as a standalone repro: this is the family-scope duplication regression."""
     with document_from_toml(
         """
         [workspace]
         name = "w"
 
-        [deps]
-        rust = "*"
+        [on.linux.deps]
+        cupy = ">=13"
 
-        [rust.deps]
-        ripgrep = "*"
+        [on.osx.python.deps]
+        torch = ">=2.11"
         """
     ) as document:
-        assert document.remove(("rust",)) == ["rust"]
-        assert "rust" not in document.doc
+        document.pull(
+            {
+                "target": {
+                    "linux-64": {"dependencies": {"cupy": ">=14.1.1,<15"}},
+                    "osx-arm64": {"pypi-dependencies": {"torch": ">=2.11.0, <3"}},
+                }
+            }
+        )
+        assert document.table(["on", "linux", "deps"])["cupy"] == ">=14.1.1,<15"
+        assert document.table(["on", "osx", "python", "deps"])["torch"] == ">=2.11.0, <3"
+        assert "linux-64" not in document.doc.get("on", {})
+        assert "osx-arm64" not in document.doc.get("on", {})
+
+
+def test_save_refuses_an_invalid_manifest() -> None:
+    """save() validates the document first, so a writer can never wedge the workspace."""
+    with document_from_toml() as document:
+        before = document.path.read_text()
+        document.table(["envs", "dev", "deps"])["ruff"] = "*"
+        with pytest.raises(ChefeError, match="reserved"):
+            document.save()
+        assert document.path.read_text() == before
+
+
+@pytest.mark.parametrize(
+    ("body", "removed", "remaining_path", "remaining_key", "survives"),
+    [
+        # Removing a runtime from `[deps]` drops its matching runtime-keyed table whole.
+        (
+            '[deps]\nrust = "*"\n\n[rust.deps]\nripgrep = "*"\n',
+            ["rust"],
+            ["rust"],
+            None,
+            None,
+        ),
+        # A toolchain table with only `manager` and `[dev.deps]` is still removed with its runtime,
+        # so the manifest never strands a table the validator would reject; structural tables stay.
+        (
+            '[deps]\nnodejs = "*"\n\n[nodejs]\nmanager = "pnpm"\n\n'
+            '[nodejs.dev.deps]\nprettier = "*"\n',
+            ["nodejs"],
+            ["nodejs"],
+            None,
+            "workspace",
+        ),
+        # `deps = { ... }` written inline is still a deps table for remove.
+        (
+            '[deps]\nnodejs = "*"\n\n[nodejs]\ndeps = { leftpad = "*" }\n',
+            ["leftpad"],
+            ["nodejs", "deps"],
+            "leftpad",
+            None,
+        ),
+    ],
+    ids=["runtime-table", "table-without-direct-deps", "inline-deps-table"],
+)
+def test_remove_drops_deps_and_runtime_tables(
+    body: str,
+    removed: list[str],
+    remaining_path: list[str],
+    remaining_key: str | None,
+    survives: str | None,
+) -> None:
+    """remove pops a package from every dep table (section or inline) and drops a runtime-keyed
+    toolchain table whose runtime is removed, while never touching structural tables."""
+    with document_from_toml(f'[workspace]\nname = "w"\n\n{body}') as document:
+        assert document.remove(tuple(removed)) == removed
+        if remaining_key is None:
+            assert remaining_path[0] not in document.doc
+        else:
+            assert remaining_key not in document.doc[remaining_path[0]][remaining_path[1]]
+        if survives is not None:
+            assert survives in document.doc
 
 
 def test_dig_returns_empty_on_non_dict_branch() -> None:
