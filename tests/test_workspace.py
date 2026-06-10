@@ -285,7 +285,7 @@ def test_add_reports_language_errors(
             [dev.nodejs.deps]
             prettier = "*"
             """,
-            r"\[dev.deps\]",
+            r"dev: \[nodejs\] has no matching package",
         ),
         (
             """
@@ -295,7 +295,7 @@ def test_add_reports_language_errors(
             [on.linux-64.nodejs.deps]
             prettier = "*"
             """,
-            r"\[on.linux-64.deps\]",
+            r"on.linux-64: \[nodejs\] has no matching package",
         ),
         (
             """
@@ -305,7 +305,7 @@ def test_add_reports_language_errors(
             [envs.frontend.nodejs.deps]
             prettier = "*"
             """,
-            r"\[envs.frontend.deps\]",
+            r"envs.frontend: \[nodejs\] has no matching package",
         ),
         (
             """
@@ -315,7 +315,7 @@ def test_add_reports_language_errors(
             [envs.default.deps]
             python = "*"
             """,
-            "Use the base manifest for the default environment",
+            r"\[envs.default\] is reserved",
         ),
     ],
 )

@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import tomllib
 from collections.abc import Mapping
+from importlib.metadata import version
 from pathlib import Path
 from typing import Self
 
 from pydantic import ConfigDict, Field, model_serializer, model_validator
 
+from .. import NAME
 from ..base import FlexModel, Model, Toml
 from ..state import Declared
 
@@ -107,7 +109,11 @@ class Scope(Model):
 
     @model_validator(mode="after")
     def toolchain_tables_must_be_declared(self) -> Self:
-        """Reject runtime-keyed tables without a matching package in `[deps]`."""
+        """Reject a runtime-keyed table without a matching package in `[deps]`.
+
+        The usual cause is a table from a newer chefe than the one installed, so the message leads
+        with the upgrade path (naming the running version) before the declare-or-remove fix.
+        """
         missing = [
             name
             for name, spec in (self.model_extra or {}).items()
@@ -115,7 +121,11 @@ class Scope(Model):
         ]
         if missing:
             names = ", ".join(f"[{name}]" for name in sorted(missing))
-            raise ValueError(f"{names} must have matching entries in [deps]")
+            raise ValueError(
+                f"{names} has no matching package in [deps]. This is often a table from a newer "
+                f"{NAME} than the {version(NAME)} you have, so try `pip install -U {NAME}`, "
+                f"otherwise add it to [deps] or remove it."
+            )
         return self
 
     def toolchains(self) -> dict[str, ToolchainSpec]:
@@ -196,7 +206,7 @@ class Activation(Model):
 class Modules(Model):
     """The ``[modules]`` table: HPC environment modules as ``name = "version"`` pairs.
 
-    Each pair renders to one ``module load name/version`` spec, in declared order -- e.g.
+    Each pair renders to one ``module load name/version`` spec, in declared order. For example
     ``cuda = "13.2"`` and ``gcc = "15.2.0"`` become ``module load cuda/13.2 gcc/15.2.0`` in the
     generated `activate.sh`. On a host without Lmod/environment-modules (a laptop, gold) the
     load is guarded by ``command -v module`` and is a harmless no-op, so the same manifest is
@@ -228,7 +238,10 @@ class Manifest(Scope):
     def default_env_is_reserved(self) -> Self:
         """Reject `[envs.default]` because `default` is the implicit base environment."""
         if "default" in self.envs:
-            raise ValueError("[envs.default] is reserved")
+            raise ValueError(
+                "[envs.default] is reserved. The base manifest is the default environment, "
+                "so use another env name."
+            )
         return self
 
     @classmethod

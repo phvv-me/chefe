@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import tomllib
+from importlib.metadata import version
 
 import pytest
 import tomlkit
@@ -342,7 +343,7 @@ def test_runtime_keyed_toolchains_are_discovered_from_deps() -> None:
             [zig.deps]
             zls = "*"
             """,
-            r"\[zig\] must have matching entries in \[deps\]",
+            r"\[zig\] has no matching package in \[deps\]",
         ),
         (
             """
@@ -356,7 +357,7 @@ def test_runtime_keyed_toolchains_are_discovered_from_deps() -> None:
             [envs.frontend.nodejs.deps]
             vite = ">=8"
             """,
-            r"\[nodejs\] must have matching entries in \[deps\]",
+            r"\[nodejs\] has no matching package in \[deps\]",
         ),
         (
             """
@@ -367,7 +368,7 @@ def test_runtime_keyed_toolchains_are_discovered_from_deps() -> None:
             [pypi.deps]
             django = "*"
             """,
-            r"\[pypi\] must have matching entries in \[deps\]",
+            r"\[pypi\] has no matching package in \[deps\]",
         ),
         (
             """
@@ -548,3 +549,18 @@ def test_modules_render_name_version_specs_in_order() -> None:
         '[workspace]\nname = "w"\n\n[modules]\nnvidia = "26.3"\ngcc = "15.2.0"\n'
     )
     assert manifest.modules.specs() == ["nvidia/26.3", "gcc/15.2.0"]
+
+
+def test_unknown_table_error_points_to_a_chefe_upgrade() -> None:
+    """An unrecognized table (usually a newer-chefe feature) names the running chefe + upgrade.
+
+    This is the failure that motivated the message: an old chefe met a manifest using a newer
+    table and previously reported only a cryptic low-level error instead of "upgrade chefe".
+    """
+    with pytest.raises(ValidationError, match="pip install -U chefe") as caught:
+        Manifest.from_toml(
+            '[workspace]\nname = "w"\nplatforms = ["x"]\n\n[future.deps]\na = "*"\n'
+        )
+    message = str(caught.value)
+    assert "no matching package in [deps]" in message  # the cause, self-contained
+    assert version("chefe") in message  # names the installed version, so the user knows to upgrade
