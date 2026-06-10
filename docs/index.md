@@ -55,10 +55,10 @@ prettier = ">=3"
 
 <div class="grid cards" markdown>
 
-- [:material-cogs: **How it works**](how-it-works.md) — the compile-and-run pipeline.
-- [:material-console: **Commands**](commands.md) — the full CLI.
-- [:material-file-document-outline: **Manifest**](manifest.md) — every `chefe.toml` table.
-- [:material-test-tube: **Examples**](examples.md) — a real-world monorepo recipe.
+- [:material-cogs: **How it works**](how-it-works.md), the compile-and-run pipeline.
+- [:material-console: **Commands**](commands.md), the full CLI.
+- [:material-file-document-outline: **Manifest**](manifest.md), every `chefe.toml` table.
+- [:material-test-tube: **Examples**](examples.md), a real-world monorepo recipe.
 
 </div>
 

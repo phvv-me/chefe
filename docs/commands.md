@@ -7,6 +7,7 @@ chefe mirrors pixi's verbs over the unified manifest. Most commands take an opti
 | `chefe init` | scaffold a starter `chefe.toml` in the current directory |
 | `chefe sync` | compile `chefe.toml` into `.chefe/{pixi.toml, package.json, …}` |
 | `chefe install [env]` | sync, then provision every language/toolchain for `env` |
+| `chefe activate [env]` | write `.chefe/activate.sh` for this host (HPC modules + pixi env) |
 | `chefe update [env]` | re-solve to the newest allowed versions across languages/toolchains |
 | `chefe upgrade [pkg…]` | bump the manifest's conda + Python constraints to the latest, then sync |
 | `chefe add <pkg…>` | add packages to the manifest, then re-sync |
@@ -63,6 +64,19 @@ chefe shell serving
 environment are available on PATH. That includes Node.js package binaries from `.chefe/node_modules/.bin`,
 so a dev tool declared in `[nodejs.dev.deps]` does not need a redundant task just to expose its CLI.
 
+## activate
+
+```sh
+chefe activate                # write .chefe/activate.sh for the default env
+chefe activate serving
+chefe install --activate-only # refresh the script without reinstalling
+```
+
+Writes a per-host `.chefe/activate.sh` that loads the manifest's `[modules]` stack and the pixi
+environment in one `source`. A job or interactive shell then runs `source .chefe/activate.sh && python -m ...`
+with the same modules and env it needs. `chefe install` always regenerates this script, and
+`--activate-only` refreshes it against an already provisioned env.
+
 ## x
 
 ```sh
@@ -74,7 +88,7 @@ Like `pipx run`, `chefe x` provisions an ephemeral environment for the tool and 
 
 ## global install
 
-Provision every language/toolchain into one shared global env, the parity of `chefe install` for tools you want everywhere. Conda goes through `pixi global`; adapters then use binaries from that global env for packages that need a second install step, such as Python, Node.js, and Rust.
+Provision every language/toolchain into one shared global env, the parity of `chefe install` for tools you want everywhere. Conda goes through `pixi global`, and adapters then use binaries from that global env for packages that need a second install step, such as Python, Node.js, and Rust.
 
 ```sh
 chefe global install          # every language/toolchain's deps into a shared global env

@@ -48,6 +48,10 @@ prettier      = ">=3"
 [rust.deps]
 bookokrat = { version = ">=0.1", locked = true }
 
+[modules]                                 # HPC modules baked into .chefe/activate.sh
+cuda = "13.2"
+gcc  = "15.2.0"
+
 [on.linux.deps]                           # platform overlay → pixi [target.linux]
 cuda-nvcc = ">=13.3"
 cupy      = ">=14"

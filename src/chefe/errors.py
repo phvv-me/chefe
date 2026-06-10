@@ -1,8 +1,7 @@
-from collections.abc import Mapping
 from pathlib import Path
-from typing import Any
 
 from pydantic import ValidationError
+from pydantic_core import ErrorDetails
 
 
 class ChefeError(RuntimeError):
@@ -26,8 +25,8 @@ class ManifestValidationMessage:
         details = [self.detail(item) for item in self.error.errors(include_url=False)]
         return "\n".join([f"{self.path.name} is invalid.", *details])
 
-    def detail(self, item: Mapping[str, Any]) -> str:
+    def detail(self, item: ErrorDetails) -> str:
         """One validation issue, prefixed with its TOML location when pydantic knows it."""
         loc = ".".join(str(part) for part in item.get("loc", ()))
-        message = str(item["msg"]).removeprefix("Value error, ")
+        message = item["msg"].removeprefix("Value error, ")
         return f"- {loc}: {message}" if loc else f"- {message}"

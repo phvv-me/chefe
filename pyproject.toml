@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "chefe"
-version = "0.0.17"
+version = "0.0.18"
 description = "One manifest for every package manager | conda, Python, Node.js, Rust & more, behind a single file."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -55,7 +55,7 @@ dev = [
   "faker>=30",
   "dirty-equals>=0.8",
 ]
-docs = ["mkdocs-material>=9.5", "mkdocs-llmstxt>=0.2", "mkdocs-static-i18n>=1.2"]
+docs = ["mkdocs-material>=9.5", "mkdocs-static-i18n>=1.2"]
 
 [project.scripts]
 chefe = "chefe.cli:app"
@@ -79,10 +79,24 @@ select = ["E", "F", "I", "UP", "B", "SIM"]
 [tool.mypy]
 python_version = "3.11"
 strict = true
+disallow_any_explicit = true
 plugins = ["pydantic.mypy"]
 files = ["src"]
 mypy_path = "src"
 namespace_packages = false
+
+[tool.pydantic-mypy]
+# Type the synthesized `__init__` from declared fields so plain models don't fall back to `Any`.
+init_typed = true
+
+# `extra="allow"` models (FlexModel and its subclasses) accept arbitrary unknown keys we forward
+# verbatim to pixi/uv, so the pydantic plugin must synthesize `__init__(self, **data: Any)` for
+# them. That `Any` is plugin-generated, not in our source, and is irreducible because the extras
+# are untyped by design. We scope the `explicit-any` waiver to exactly the modules that define
+# such models, keeping the global ban in force everywhere else.
+[[tool.mypy.overrides]]
+module = ["chefe.base", "chefe.manifest.schema", "chefe.compiled.npm"]
+disable_error_code = ["explicit-any"]
 
 [tool.pytest.ini_options]
 addopts = "-q -ra --strict-markers --cov=chefe --cov-report=term-missing"

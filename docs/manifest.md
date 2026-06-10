@@ -80,6 +80,8 @@ validated, shown in `chefe tree`, and can expose extra executable directories th
     Chefe does not preflight every possible manager. If `manager = "zig"` or `manager = "conan"`
     names a binary that is unavailable, the real command fails when it is used.
 
+A runtime table only works when its name is also declared in `[deps]`. A table with no matching package fails with a self-contained error that names the running chefe and leads with the upgrade path, since the usual cause is a table from a newer chefe than the one installed. Run `pip install -U chefe`, or add the name to `[deps]`, or remove the table.
+
 ## JavaScript applications
 
 By default `[nodejs.deps]` installs as tooling under `.chefe/`, beside the conda env. An application
@@ -131,7 +133,7 @@ own solve.
 
 Command-line tools declared in `[nodejs.dev.deps]` are available through `chefe run` and `chefe shell`.
 For example, declaring `@tobilu/qmd` here lets `chefe run qmd ...` find the executable linked
-under `.chefe/node_modules/.bin`; do not add a task that only repeats that binary path.
+under `.chefe/node_modules/.bin`. Do not add a task that only repeats that binary path.
 
 ## System requirements
 
@@ -154,12 +156,24 @@ CUDA_MODULE_LOADING = "LAZY"
 
 ## Activation scripts
 
-Shell scripts sourced when the environment activates, for setup that static env vars can't express (computed paths, library symlinks). They compile to pixi's `[activation] scripts`; a repo-root path keeps working from the generated `.chefe/`.
+Shell scripts sourced when the environment activates, for setup that static env vars can't express (computed paths, library symlinks). They compile to pixi's `[activation] scripts`, and a repo-root path keeps working from the generated `.chefe/`.
 
 ```toml
 [activation]
 scripts = ["scripts/activate.sh"]
 ```
+
+## HPC modules
+
+`[modules]` is a stack of HPC environment modules as `name = "version"` pairs. Each pair becomes one `module load name/version` line, in declared order, baked into the generated `.chefe/activate.sh`. So `source .chefe/activate.sh` loads the same modules a job needs before it runs.
+
+```toml
+[modules]
+cuda = "13.2"
+gcc  = "15.2.0"
+```
+
+This compiles to `module purge` followed by `module load cuda/13.2 gcc/15.2.0`. On a host without Lmod or environment-modules (a laptop, for instance) the load is guarded by `command -v module` and becomes a harmless no-op, so the same manifest is safe everywhere. Refresh the script for the current host with `chefe install` or `chefe activate`.
 
 ## Platform overlays
 

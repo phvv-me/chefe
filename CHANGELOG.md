@@ -4,6 +4,15 @@ All notable changes to chefe are documented here.
 
 The format follows Keep a Changelog, and releases are cut from the version in `pyproject.toml`.
 
+## 0.0.18
+
+### Changed
+
+- Typing is now mypy strict with `disallow_any_explicit`. The source carries no explicit `Any` or `object` annotations. A scoped override remains only for pydantic's plugin-generated `Any` on `extra="allow"` models.
+- The docs adopt a shared design language built on Open Props tokens over mkdocs-material, with a legible app-icon used as both logo and favicon.
+- `llms.txt` and `llms-full.txt` now generate from the english source via a post-build hook, so the i18n build no longer leaves them empty.
+- CI actions updated to setup-uv v7, upload-pages-artifact v5, deploy-pages v5, and gh-release v3.
+
 ## 0.0.17
 
 ### Changed
