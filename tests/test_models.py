@@ -1,6 +1,5 @@
 import json
 import tomllib
-from importlib.metadata import version
 
 import pytest
 import tomlkit
@@ -581,4 +580,4 @@ def test_unknown_table_error_points_to_a_chefe_upgrade() -> None:
         )
     message = str(caught.value)
     assert "no matching package in [deps]" in message  # the cause, self-contained
-    assert version("chefe") in message  # names the installed version, so the user knows to upgrade
+    assert "0.0.test" in message  # names the running version, so the user knows to upgrade

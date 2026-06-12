@@ -439,6 +439,9 @@ def test_update_and_upgrade_and_shell_and_run(
         """
         [deps]
         python = "*"
+
+        [tasks]
+        build = "echo build"
         """
     )
     manager.update()
@@ -455,7 +458,15 @@ def test_passthrough_verbs_exit_with_the_inner_code(
 ) -> None:
     """`run` and `shell` both propagate the inner command's exit status through the pixi
     exit-code seam, raising `SystemExit(code)` on failure and staying silent on success."""
-    manager = workspace("[deps]\npython = '*'\n")
+    manager = workspace(
+        """
+        [deps]
+        python = '*'
+
+        [tasks]
+        build = "echo build"
+        """
+    )
     monkeypatch.setattr(Pixi, "exit_code", lambda self, *a, **k: code)
     invoke = (lambda: manager.run("build")) if verb == "run" else manager.shell
     if code:
@@ -482,16 +493,33 @@ def test_run_and_shell_expose_npm_bins(
     manager.sync()
     binary_dir = manager.node(manager.load()).binary_dir()
     binary_dir.mkdir(parents=True)
+    binary = binary_dir / "qmd"
+    binary.write_text("#!/bin/sh\n")
+    binary.chmod(0o755)
     seen: list[tuple[str, bool]] = []
 
     def note(verb: str) -> None:
         seen.append((verb, str(binary_dir) in local.env["PATH"]))
 
-    monkeypatch.setattr(Pixi, "__call__", lambda self, verb, *a, **k: note(verb) or True)
     monkeypatch.setattr(Pixi, "exit_code", lambda self, verb, *a, **k: note(verb) or 0)
     manager.run("qmd", "--version")
     manager.shell()
     assert seen == [("run", True), ("shell", True)]
+
+
+def test_run_missing_name_reports_task_or_executable(workspace: Workspace) -> None:
+    """A missing `chefe run` target explains that the name can be a task or an executable."""
+    manager = workspace("[deps]\npython = '*'\n")
+    with pytest.raises(ChefeError, match="No task or executable named `missing-chefe-tool`"):
+        manager.run("missing-chefe-tool")
+
+
+def test_x_exits_with_the_inner_code(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """`chefe x` preserves a failing ephemeral command's exit status."""
+    monkeypatch.setattr(Pixi, "exec", lambda self, specs, args: 13)
+    with pytest.raises(SystemExit) as exit_info:
+        PackageManager(tmp_path).x("ruff")
+    assert exit_info.value.code == 13
 
 
 def test_global_install_builds_specs(
@@ -509,6 +537,58 @@ def test_global_install_builds_specs(
     glob = next(c for c in recording_backends if c[1] == "shared")
     specs = glob[2]  # global_install passes the spec list as a single positional arg
     assert "python>=3.11" in specs and "ripgrep" in specs
+
+
+def test_global_add_remove_and_list_use_workspace_default(
+    workspace: Workspace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Global mutations default to the workspace name and pass explicit envs through."""
+    manager = workspace("[deps]\npython = '*'\n")
+    seen: list[tuple[str, str, tuple[str, ...] | str, bool | str]] = []
+
+    monkeypatch.setattr(
+        Pixi,
+        "global_add",
+        lambda self, name, packages: seen.append(("add", name, packages, "")),
+    )
+    monkeypatch.setattr(
+        Pixi,
+        "global_remove",
+        lambda self, name, packages: seen.append(("remove", name, packages, "")),
+    )
+    monkeypatch.setattr(
+        Pixi,
+        "global_list",
+        lambda self, name="", regex="", json=False, sort_by="": seen.append(
+            ("list", name, regex, json)
+        ),
+    )
+
+    manager.global_add("ripgrep")
+    manager.global_remove("ripgrep", env="tools")
+    manager.global_list("rip", env="tools", json=True)
+
+    assert seen == [
+        ("add", "w", ("ripgrep",), ""),
+        ("remove", "tools", ("ripgrep",), ""),
+        ("list", "tools", "rip", True),
+    ]
+
+
+@pytest.mark.parametrize(
+    ("call", "match"),
+    [
+        (lambda manager: manager.global_add(), "No packages given"),
+        (lambda manager: manager.global_remove(), "No packages given"),
+    ],
+)
+def test_global_add_remove_require_packages(
+    workspace: Workspace, call: Callable[[PackageManager], None], match: str
+) -> None:
+    """Global add and remove fail clearly when no package names are provided."""
+    manager = workspace("[deps]\npython = '*'\n")
+    with pytest.raises(ChefeError, match=match):
+        call(manager)
 
 
 def test_x_runs_ephemeral(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

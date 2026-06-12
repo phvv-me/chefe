@@ -12,10 +12,13 @@ O chefe espelha os verbos do pixi sobre o manifest unificado. A maioria dos coma
 | `chefe add <pkg…>` | adiciona pacotes ao manifest e então re-sincroniza |
 | `chefe remove <pkg…>` | remove pacotes onde quer que estejam declarados e então re-sincroniza |
 | `chefe tree [env]` | declarado vs instalado, cada dependência verificada em **seu próprio** ecossistema |
-| `chefe run <task> [args…]` | executa uma task dentro do ambiente |
+| `chefe run <cmd> [args…]` | executa uma task ou executável instalado dentro do ambiente |
 | `chefe x <cmd…>` | executa um comando em um ambiente descartável, como pipx run |
 | `chefe shell [env]` | abre um shell ativado em `env` |
 | `chefe global install [name]` | instala as dependências de cada ecossistema em um ambiente global compartilhado |
+| `chefe global add <pkg…>` | adiciona pacotes conda ao ambiente global com o nome do workspace |
+| `chefe global remove <pkg…>` | remove pacotes do ambiente global com o nome do workspace |
+| `chefe global list` | mostra todos os ambientes globais ou um ambiente com `-e` |
 | `chefe clean` | remove o ambiente e os manifests gerados em `.chefe/` |
 
 ## init
@@ -53,9 +56,12 @@ Cada pacote declarado é verificado na fonte em que foi declarado. O conda é ve
 
 ```sh
 chefe run build
+chefe run qmd query "topic" -c zettel
 chefe shell                # activated shell in the default env
 chefe shell serving
 ```
+
+`chefe run` primeiro deixa o pixi resolver tasks declaradas e depois procura executáveis comuns no `PATH` do ambiente gerenciado. Isso mantém scripts de ativação e variáveis de ambiente enquanto evita aliases redundantes de task.
 
 ## x
 
@@ -73,6 +79,10 @@ Provisiona cada fonte em um único ambiente global compartilhado, o equivalente 
 ```sh
 chefe global install          # every language/toolchain's deps into a shared global env
 chefe global install mytools  # name the env explicitly
+chefe global add ripgrep fd-find
+chefe global remove fd-find
+chefe global list
+chefe global list -e mytools
 ```
 
 ## clean

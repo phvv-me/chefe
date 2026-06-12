@@ -120,6 +120,31 @@ class Pixi(Tool):
         if not self.foreground(self.command[argv]):
             raise ChefeError("`pixi global install` failed (see its output above)")
 
+    def global_add(self, name: str, specs: tuple[str, ...]) -> None:
+        """Add conda specs to a shared global pixi env named ``name``."""
+        argv = ("global", "add", *self.flags(environment=name), *specs)
+        if not self.foreground(self.command[argv]):
+            raise ChefeError("`pixi global add` failed (see its output above)")
+
+    def global_remove(self, name: str, packages: tuple[str, ...]) -> None:
+        """Remove conda packages from a shared global pixi env named ``name``."""
+        argv = ("global", "remove", *self.flags(environment=name), *packages)
+        if not self.foreground(self.command[argv]):
+            raise ChefeError("`pixi global remove` failed (see its output above)")
+
+    def global_list(
+        self, name: str = "", regex: str = "", json: bool = False, sort_by: str = ""
+    ) -> None:
+        """List all global envs, or packages inside one shared global pixi env."""
+        argv = (
+            "global",
+            "list",
+            *self.flags(environment=name, json=json, sort_by=sort_by),
+            *([regex] if regex else []),
+        )
+        if not self.foreground(self.command[argv]):
+            raise ChefeError("`pixi global list` failed (see its output above)")
+
     def exec(self, specs: tuple[str, ...], args: tuple[str, ...]) -> int:
         """Run ``args`` in a throwaway env (like uvx), returning the command's exit code.
 

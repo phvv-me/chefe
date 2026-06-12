@@ -322,12 +322,25 @@ def test_global_install_spans_all_ecosystems(
     [
         (lambda p, prefix: p("install"), r"`pixi install` failed"),
         (lambda p, prefix: p.global_install("demo", ["ripgrep"]), r"`pixi global install` failed"),
+        (lambda p, prefix: p.global_add("demo", ("ripgrep",)), r"`pixi global add` failed"),
+        (lambda p, prefix: p.global_remove("demo", ("ripgrep",)), r"`pixi global remove` failed"),
+        (lambda p, prefix: p.global_list(), r"`pixi global list` failed"),
         (lambda p, prefix: p.global_pip(prefix, ["ruff"]), "global pip install failed"),
         (lambda p, prefix: p.global_npm(prefix, ["prettier"]), "global npm install failed"),
         (lambda p, prefix: p.global_cargo(prefix, ["bat"]), "global cargo install failed"),
         (lambda p, prefix: p.bootstrap(), "pixi installer failed"),
     ],
-    ids=["call", "global-install", "global-pip", "global-npm", "global-cargo", "bootstrap"],
+    ids=[
+        "call",
+        "global-install",
+        "global-add",
+        "global-remove",
+        "global-list",
+        "global-pip",
+        "global-npm",
+        "global-cargo",
+        "bootstrap",
+    ],
 )
 def test_every_seam_raises_chefe_error_on_failure(
     call: Callable[[Pixi, Path], object],
@@ -356,3 +369,47 @@ def test_exec_preserves_exit_code(
     """`chefe x` passes the wrapped command's exit code through."""
     fp.register([tool_paths["pixi"], fp.any()], returncode=code)
     assert Pixi(tmp_path).exec((), ("ruff", "check")) == code
+
+
+def test_global_add_remove_and_list_build_pixi_args(
+    fp: FakeProcess, tool_paths: dict[str, str], tmp_path: Path
+) -> None:
+    """The lightweight global helpers mirror Pixi's global subcommands."""
+    for _ in range(4):
+        fp.register([tool_paths["pixi"], fp.any()], stdout="")
+    pixi = Pixi(tmp_path)
+    pixi.global_add("shared", ("ripgrep", "fd-find"))
+    pixi.global_remove("shared", ("fd-find",))
+    pixi.global_list("shared", "rip", json=True, sort_by="size")
+    pixi.global_list(regex="ruff")
+
+    calls = [list(call) for call in fp.calls]
+    assert [
+        tool_paths["pixi"],
+        "global",
+        "add",
+        "--environment",
+        "shared",
+        "ripgrep",
+        "fd-find",
+    ] in calls
+    assert [
+        tool_paths["pixi"],
+        "global",
+        "remove",
+        "--environment",
+        "shared",
+        "fd-find",
+    ] in calls
+    assert [
+        tool_paths["pixi"],
+        "global",
+        "list",
+        "--environment",
+        "shared",
+        "--json",
+        "--sort-by",
+        "size",
+        "rip",
+    ] in calls
+    assert [tool_paths["pixi"], "global", "list", "ruff"] in calls

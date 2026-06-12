@@ -48,6 +48,9 @@ def build(manager: PackageManager) -> App:
     app.command(handled(manager, manager.upgrade))
     app.command(handled(manager, manager.remove))
     glob.command(handled(manager, manager.global_install), name="install")
+    glob.command(handled(manager, manager.global_add), name="add")
+    glob.command(handled(manager, manager.global_remove), name="remove")
+    glob.command(handled(manager, manager.global_list), name="list")
     return app
 
 

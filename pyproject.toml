@@ -95,6 +95,9 @@ init_typed = true
 module = ["chefe.base", "chefe.manifest.schema", "chefe.compiled.npm"]
 disable_error_code = ["explicit-any"]
 
+[tool.pyrefly]
+project-includes = ["src/**/*.py"]
+
 [tool.pytest.ini_options]
 addopts = "-q -ra --strict-markers --cov=chefe --cov-report=term-missing"
 testpaths = ["tests"]

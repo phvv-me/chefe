@@ -73,6 +73,12 @@ def document(manifest_path: Path) -> Document:
     return Document(manifest_path)
 
 
+@pytest.fixture(autouse=True)
+def stable_chefe_version(mocker: MockerFixture) -> None:
+    """Keep source-tree tests independent of installed package metadata."""
+    mocker.patch("chefe.manifest.schema.version", return_value="0.0.test")
+
+
 @pytest.fixture
 def tool_paths(tmp_path_factory: pytest.TempPathFactory) -> Iterator[dict[str, str]]:
     """Stub `pixi`/`npm`/`cargo` executables on plumbum's PATH so backend commands resolve

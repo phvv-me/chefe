@@ -8,6 +8,14 @@ The format follows Keep a Changelog, and releases are cut from the version in `p
 
 ### Changed
 
+- `chefe run` now prefers declared `[tasks]` entries, then falls through to executables on the
+  activated environment `PATH`, so tools such as `vite`, `node`, and npm package binaries run
+  directly without redundant task aliases. Both paths execute through `pixi run`, so the
+  manifest's `[activation]` scripts and env vars always apply; a name that is neither a task
+  nor an executable fails up front with guidance.
+- `chefe global` now mirrors Pixi's everyday global environment operations with `add`,
+  `remove`, and `list`, all defaulting to the workspace-named global env when an environment is
+  needed.
 - Python 3.14 is now the floor. The code uses PEP 695 generics and the native `type` alias for `Toml`, the `typing-extensions` dependency is gone, and deferred annotation evaluation replaces every `from __future__ import annotations`.
 - `pull` is scope aware. A dep resolved for a concrete platform bumps the family selector that declares it (`[on.linux]` covers `target.linux-64`) instead of duplicating into a new table, the pixi `dev` feature folds back into `[dev]` rather than a fabricated `[envs.dev]`, and targets nested inside features fold into `[envs.<name>.on.<platform>]`.
 - Backends fail loudly. A failing `pixi`, npm, or cargo command raises a clean error instead of printing green success, `chefe x` and `chefe shell` exit with the wrapped command's real code, and the pixi bootstrap reports installer failure.

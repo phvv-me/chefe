@@ -10,6 +10,7 @@ from typing import Annotated
 import tomlkit
 from cyclopts import Parameter
 from plumbum import local
+from plumbum.commands.processes import CommandNotFound
 from pydantic import ValidationError
 from rich.console import Console
 from rich.table import Table
@@ -229,9 +230,77 @@ class PackageManager:
             markup(t"[green]installed[/green] {total} deps into [bold]{name}[/bold]")
         )
 
+    def global_add(
+        self,
+        *packages: Annotated[str, Parameter(allow_leading_hyphen=True)],
+        env: Annotated[
+            str,
+            Parameter(
+                name=("--environment", "-e"),
+                help="Global environment to mutate; defaults to workspace.name.",
+            ),
+        ] = "",
+    ) -> None:
+        """Add conda packages to a shared global pixi env."""
+        if not packages:
+            raise ChefeError("No packages given. Usage: `chefe global add <package>...`.")
+        name = env or self.load().workspace.name
+        self.pixi.global_add(name, packages)
+        self.console.print(
+            markup(t"[green]added[/green] {', '.join(packages)} to [bold]{name}[/bold]")
+        )
+
+    def global_remove(
+        self,
+        *packages: Annotated[str, Parameter(allow_leading_hyphen=True)],
+        env: Annotated[
+            str,
+            Parameter(
+                name=("--environment", "-e"),
+                help="Global environment to mutate; defaults to workspace.name.",
+            ),
+        ] = "",
+    ) -> None:
+        """Remove conda packages from a shared global pixi env."""
+        if not packages:
+            raise ChefeError("No packages given. Usage: `chefe global remove <package>...`.")
+        name = env or self.load().workspace.name
+        self.pixi.global_remove(name, packages)
+        self.console.print(
+            markup(t"[green]removed[/green] {', '.join(packages)} from [bold]{name}[/bold]")
+        )
+
+    def global_list(
+        self,
+        regex: str = "",
+        env: Annotated[
+            str,
+            Parameter(name=("--environment", "-e"), help="Show packages inside one global env."),
+        ] = "",
+        json: bool = False,
+        sort_by: str = "",
+    ) -> None:
+        """Show installed global envs, or packages inside one global env."""
+        self.pixi.global_list(env, regex, json, sort_by)
+
     def run(self, task: str, *args: Annotated[str, Parameter(allow_leading_hyphen=True)]) -> None:
-        """Run a task or installed executable inside the env, exiting with its code."""
+        """Run a task or installed executable inside the env, exiting with its code.
+
+        Declared `[tasks]` come first; any other name falls through to an executable on the
+        activated PATH. Both go through `pixi run` so the manifest's `[activation]` scripts
+        and env vars always apply. A name that is neither fails with guidance up front,
+        instead of pixi's bare command-not-found.
+        """
         with self.activated():
+            if task not in self.load().tasks:
+                try:
+                    local[task]
+                except CommandNotFound as error:
+                    raise ChefeError(
+                        f"No task or executable named `{task}` was found in the active "
+                        "environment. "
+                        "Run `chefe install`, check `chefe tree`, or add it to [tasks]."
+                    ) from error
             code = self.pixi.exit_code("run", task, *args)
         if code:
             raise SystemExit(code)

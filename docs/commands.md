@@ -17,6 +17,9 @@ chefe mirrors pixi's verbs over the unified manifest. Most commands take an opti
 | `chefe x <cmd…>` | run a command in a throwaway env, like pipx run |
 | `chefe shell [env]` | open an activated shell in `env` |
 | `chefe global install [name]` | install every language/toolchain's deps into a shared global env |
+| `chefe global add <pkg…>` | add conda packages to the workspace-named global env |
+| `chefe global remove <pkg…>` | remove packages from the workspace-named global env |
+| `chefe global list` | show all global envs, or one env with `-e` |
 | `chefe clean` | remove the generated `.chefe/` env and manifests |
 
 ## init
@@ -93,6 +96,10 @@ Provision every language/toolchain into one shared global env, the parity of `ch
 ```sh
 chefe global install          # every language/toolchain's deps into a shared global env
 chefe global install mytools  # name the env explicitly
+chefe global add ripgrep fd-find
+chefe global remove fd-find
+chefe global list
+chefe global list -e mytools
 ```
 
 ## clean

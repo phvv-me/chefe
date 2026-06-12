@@ -12,10 +12,13 @@ chefe refleja los verbos de pixi sobre el manifest unificado. La mayoría de los
 | `chefe add <pkg…>` | agrega paquetes al manifest, luego vuelve a sincronizar |
 | `chefe remove <pkg…>` | elimina paquetes donde sea que estén declarados, luego vuelve a sincronizar |
 | `chefe tree [env]` | declarado vs instalado, cada dep verificada en **su propio** ecosistema |
-| `chefe run <task> [args…]` | ejecuta una tarea dentro del entorno |
+| `chefe run <cmd> [args…]` | ejecuta una tarea o un ejecutable instalado dentro del entorno |
 | `chefe x <cmd…>` | ejecuta un comando en un entorno desechable, como pipx run |
 | `chefe shell [env]` | abre una shell activada en `env` |
 | `chefe global install [name]` | instala las deps de cada ecosistema en un entorno global compartido |
+| `chefe global add <pkg…>` | agrega paquetes conda al entorno global con el nombre del workspace |
+| `chefe global remove <pkg…>` | elimina paquetes del entorno global con el nombre del workspace |
+| `chefe global list` | muestra todos los entornos globales o uno con `-e` |
 | `chefe clean` | elimina el entorno `.chefe/` generado y los manifests |
 
 ## init
@@ -53,9 +56,12 @@ Cada paquete declarado se verifica contra la fuente en la que fue declarado. Con
 
 ```sh
 chefe run build
+chefe run qmd query "topic" -c zettel
 chefe shell                # activated shell in the default env
 chefe shell serving
 ```
+
+`chefe run` primero deja que pixi resuelva tareas declaradas y luego busca ejecutables comunes en el `PATH` del entorno gestionado. Esto conserva scripts de activación y variables de entorno mientras evita aliases redundantes de tareas.
 
 ## x
 
@@ -73,6 +79,10 @@ Aprovisiona cada fuente en un solo entorno global compartido, el equivalente de 
 ```sh
 chefe global install          # every language/toolchain's deps into a shared global env
 chefe global install mytools  # name the env explicitly
+chefe global add ripgrep fd-find
+chefe global remove fd-find
+chefe global list
+chefe global list -e mytools
 ```
 
 ## clean
