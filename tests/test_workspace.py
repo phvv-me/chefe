@@ -406,25 +406,23 @@ def test_install_activate_only_skips_package_install(
     assert (manager.out / "activate.sh").exists()
 
 
-@pytest.mark.parametrize("manager_name", ["npm", "pnpm", "yarn", "aube"])
-def test_node_backend_is_generic_over_the_manager_name(
-    workspace: Workspace, manager_name: str
-) -> None:
-    """`[nodejs] manager` is any binary name; the backend runs it in the env dir."""
+def test_node_backend_uses_the_named_manager(workspace: Workspace) -> None:
+    """`PackageManager.node` builds a `Node` carrying the manifest's `[nodejs] manager` name,
+    rooted in the env dir (the per-manager genericity itself lives in `test_backends`)."""
     manager = workspace(
-        f"""
+        """
         [deps]
         nodejs = "*"
 
         [nodejs]
-        manager = "{manager_name}"
+        manager = "pnpm"
 
         [nodejs.deps]
         x = "*"
         """
     )
     node = manager.node(manager.load())
-    assert node.name == manager_name
+    assert node.name == "pnpm"
     assert node.cwd() == manager.out
 
 

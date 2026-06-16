@@ -287,8 +287,11 @@ def test_normalize_is_idempotent_and_insensitive(name: str, noise: str) -> None:
 
 
 @given(version=st.sampled_from(["1.0.0", "2.5", "0.0.1"]))
-def test_satisfied_wildcard_and_self(version: str) -> None:
-    """`*` and `""` accept anything, and a version satisfies its own `==` constraint."""
+def test_satisfied_wildcard_self_and_unparseable(version: str) -> None:
+    """`*`/`""` accept anything, a version satisfies its own `==`, and an unparseable spec or
+    version is treated as satisfied (display-only; pixi is the real gate)."""
     assert satisfied("*", version)
     assert satisfied("", version)
     assert satisfied(f"=={version}", version)
+    assert satisfied("not-a-spec", version)
+    assert satisfied(">=1.0", "not-a-version")

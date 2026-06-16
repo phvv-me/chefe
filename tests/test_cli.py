@@ -1,4 +1,5 @@
 import functools
+from collections.abc import Callable
 from pathlib import Path
 
 import pytest
@@ -7,6 +8,8 @@ from chefe.cli import build
 from chefe.manager import PackageManager
 
 from .conftest import write_manifest
+
+Recorder = Callable[..., None]
 
 # Each CLI argv and the manager method it must delegate to (cli.py is pure wiring).
 COMMANDS = [
@@ -37,7 +40,7 @@ def recording_manager(seen: list[str]) -> PackageManager:
     class Spy(PackageManager):
         pass
 
-    def spy(name: str):  # noqa: ANN202  (returns a wrapped no-op)
+    def spy(name: str) -> Recorder:
         @functools.wraps(getattr(PackageManager, name))
         def record(self: PackageManager, *args: object, **kwargs: object) -> None:
             seen.append(name)

@@ -10,7 +10,7 @@ from pydantic import ValidationError
 from chefe.compiled import PackageJson, PixiManifest
 from chefe.errors import ChefeError
 from chefe.manifest import Document, Manifest, Scope, Spec
-from chefe.utils import platform_scopes, satisfied
+from chefe.utils import platform_scopes
 
 from .strategies import dep_maps, manifests, specs, toolchain_names
 
@@ -178,12 +178,6 @@ def test_env_platform_overlay_target_rendering(body: str, expected_version: str 
         return
     overlay = Document.dig(pixi.feature, "serving", "target", "linux-64", "dependencies")
     assert Spec.model_validate(overlay["cupy"]).version == expected_version
-
-
-def test_satisfied_tolerates_unparseable_spec() -> None:
-    """An invalid specifier or version is treated as satisfied (display-only, pixi is the gate)."""
-    assert satisfied("not-a-spec", "1.0.0")
-    assert satisfied(">=1.0", "not-a-version")
 
 
 def test_nodejs_manager_is_a_free_name_defaulting_to_npm() -> None:
@@ -377,17 +371,6 @@ def test_runtime_keyed_toolchains_are_discovered_from_deps() -> None:
             name = "envs"
             platforms = ["linux-64"]
 
-            [envs.default.deps]
-            ruff = "*"
-            """,
-            r"\[envs.default\] is reserved",
-        ),
-        (
-            """
-            [workspace]
-            name = "envs"
-            platforms = ["linux-64"]
-
             [envs.dev.deps]
             ruff = "*"
             """,
@@ -396,7 +379,8 @@ def test_runtime_keyed_toolchains_are_discovered_from_deps() -> None:
     ],
 )
 def test_manifest_rejects_invalid_scope_tables(text: str, match: str) -> None:
-    """Scoped tables require matching runtime deps, and `default` remains reserved."""
+    """Scoped tables require matching runtime deps, and the reserved env names stay reserved
+    (`envs.default` reaches the same guard through `PackageManager.load`)."""
     with pytest.raises(ValidationError, match=match):
         Manifest.from_toml(text)
 
@@ -554,18 +538,20 @@ def test_app_package_json_takes_workspace_name_and_passthrough() -> None:
     assert data["dependencies"] == {"svelte": ">=5"}
 
 
-def test_modules_default_to_nothing() -> None:
-    """With no `[modules]` table there are no module specs; the host (e.g. gold) loads none."""
-    manifest = Manifest.from_toml('[workspace]\nname = "w"\n')
-    assert manifest.modules.specs() == []
-
-
-def test_modules_render_name_version_specs_in_order() -> None:
-    """`[modules]` `name = "version"` pairs become ordered `name/version` specs, no discovery."""
-    manifest = Manifest.from_toml(
-        '[workspace]\nname = "w"\n\n[modules]\nnvidia = "26.3"\ngcc = "15.2.0"\n'
-    )
-    assert manifest.modules.specs() == ["nvidia/26.3", "gcc/15.2.0"]
+@pytest.mark.parametrize(
+    ("body", "expected"),
+    [
+        # No `[modules]` table: nothing to load (the host, e.g. gold, loads none).
+        ("", []),
+        # `name = "version"` pairs become ordered `name/version` specs, no discovery.
+        ('\n[modules]\nnvidia = "26.3"\ngcc = "15.2.0"\n', ["nvidia/26.3", "gcc/15.2.0"]),
+    ],
+    ids=["empty", "ordered-pairs"],
+)
+def test_modules_render_ordered_specs(body: str, expected: list[str]) -> None:
+    """`[modules]` renders ordered `name/version` specs, and is empty when the table is absent."""
+    manifest = Manifest.from_toml(f'[workspace]\nname = "w"\n{body}')
+    assert manifest.modules.specs() == expected
 
 
 def test_unknown_table_error_points_to_a_chefe_upgrade() -> None:

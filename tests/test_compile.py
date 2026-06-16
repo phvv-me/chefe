@@ -1,4 +1,5 @@
 import pytest
+from syrupy.assertion import SnapshotAssertion
 
 from chefe.compiled import PackageJson, PixiManifest
 from chefe.manifest import Manifest
@@ -92,12 +93,12 @@ def manifest(request: pytest.FixtureRequest) -> Manifest:
     return Manifest.from_toml(request.param)
 
 
-def test_pixi_toml_snapshot(manifest: Manifest, snapshot) -> None:  # noqa: ANN001
+def test_pixi_toml_snapshot(manifest: Manifest, snapshot: SnapshotAssertion) -> None:
     """The compiled `pixi.toml` text is pinned for representative manifests."""
     assert PixiManifest.from_manifest(manifest).to_toml() == snapshot
 
 
-def test_package_json_snapshot(manifest: Manifest, snapshot) -> None:  # noqa: ANN001
+def test_package_json_snapshot(manifest: Manifest, snapshot: SnapshotAssertion) -> None:
     """The compiled `package.json` text (or its absence) is pinned."""
     package = PackageJson.from_manifest(manifest)
     rendered = package.to_json() if package is not None else "<none>"

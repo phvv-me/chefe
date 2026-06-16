@@ -13,18 +13,18 @@ def render(tmp_path: Path, modules: tuple[str, ...], hook: str = "export FOO=bar
     return Environment(tmp_path / "activate.sh", hook).render(modules)
 
 
-def test_loads_the_pinned_modules(tmp_path: Path) -> None:
-    """The script sources module init, purges, then loads exactly the pinned list."""
+def test_module_script_contents(tmp_path: Path) -> None:
+    """With modules pinned the script sources module init, guards every module command behind
+    `command -v module`, purges, loads exactly the pinned list, and carries no libstdc++ hack."""
     script = render(tmp_path, MODULES)
-    assert "module purge" in script
-    assert "module load nvidia/26.3 gcc/15.2.0" in script
-    assert "/usr/share/lmod/lmod/init/bash" in script
-
-
-def test_module_lines_are_guarded(tmp_path: Path) -> None:
-    """The module commands are guarded by `command -v module` so they no-op off-cluster."""
-    script = render(tmp_path, MODULES)
-    assert "if command -v module >/dev/null 2>&1; then" in script
+    present = (
+        "module purge",
+        "module load nvidia/26.3 gcc/15.2.0",
+        "/usr/share/lmod/lmod/init/bash",
+        "if command -v module >/dev/null 2>&1; then",
+    )
+    assert all(line in script for line in present)
+    assert "LD_PRELOAD" not in script and "libstdc++" not in script  # no CXXABI fix needed
 
 
 def test_empty_modules_emit_no_module_block(tmp_path: Path) -> None:
@@ -34,13 +34,6 @@ def test_empty_modules_emit_no_module_block(tmp_path: Path) -> None:
     assert "module purge" not in script
     assert "module load" not in script
     assert "export FOO=bar" in script
-
-
-def test_no_libstdcxx_preload(tmp_path: Path) -> None:
-    """The libstdc++ LD_PRELOAD hack is gone; the pinned SDK needs no CXXABI fix."""
-    script = render(tmp_path, MODULES)
-    assert "LD_PRELOAD" not in script
-    assert "libstdc++" not in script
 
 
 def test_hook_is_embedded_verbatim(tmp_path: Path) -> None:
