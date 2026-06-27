@@ -10,6 +10,7 @@ from chefe.backends import Cargo, Node, Pixi
 from chefe.errors import ChefeError
 from chefe.manager import PackageManager
 from chefe.state import Installed
+from chefe.tree_report import TreeReport
 
 Workspace = Callable[[str], PackageManager]
 
@@ -512,6 +513,61 @@ def test_run_missing_name_reports_task_or_executable(workspace: Workspace) -> No
         manager.run("missing-chefe-tool")
 
 
+def test_run_leading_env_flag_selects_a_declared_environment(
+    workspace: Workspace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`chefe run --env <name> <cmd>` runs `<cmd>` in the named `[envs.*]` env, threading
+    the env through pixi as `run -e <name>` with the flag stripped from the command."""
+    manager = workspace(
+        """
+        [deps]
+        python = "*"
+
+        [tasks]
+        build = "echo build"
+
+        [envs.gpu]
+        no-default = true
+
+        [envs.gpu.deps]
+        python = "*"
+        """
+    )
+    seen: list[tuple[str, ...]] = []
+    monkeypatch.setattr(Pixi, "exit_code", lambda self, *a, **k: seen.append(a) or 0)
+    manager.run("--env", "gpu", "build", "--flag")
+    assert seen == [("run", "-e", "gpu", "build", "--flag")]
+
+
+def test_run_unknown_env_fails_fast(workspace: Workspace) -> None:
+    """An `--env` that names no declared `[envs.*]` table is rejected before reaching pixi."""
+    manager = workspace("[deps]\npython = '*'\n")
+    with pytest.raises(ChefeError, match="No environment `ghost` is declared"):
+        manager.run("--env", "ghost", "python")
+
+
+def test_activation_recompiles_an_edited_manifest(
+    workspace: Workspace, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """An edit to `chefe.toml` after a sync is recompiled on the next activation, never stale.
+
+    The bug this guards: a command read the already-compiled `.chefe/pixi.toml` and never noticed
+    the manifest had changed, so a freshly added `[env]` var silently did not take effect until a
+    manual `chefe sync`. `stale()` keys off the manifest content digest, so an edit recompiles.
+    """
+    manager = workspace("[deps]\npython = '*'\n")
+    assert manager.stale() is False  # nothing compiled yet, first provisioning is install's job
+    manager.sync()
+    assert manager.stale() is False  # fresh right after a sync
+    manager.manifest.write_text(manager.manifest.read_text() + '\n[env]\nFOO = "bar"\n')
+    assert manager.stale() is True  # the edit is caught by the content digest
+    with manager.activated():
+        pass
+    assert manager.stale() is False  # activation recompiled, so the marker matches again
+    assert 'FOO = "bar"' in manager.pixi.manifest.read_text()  # the new var reached the compile
+    assert "recompiling" in capsys.readouterr().out
+
+
 def test_x_exits_with_the_inner_code(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """`chefe x` preserves a failing ephemeral command's exit status."""
     monkeypatch.setattr(Pixi, "exec", lambda self, specs, args: 13)
@@ -531,7 +587,7 @@ def test_global_install_builds_specs(
         ripgrep = "*"
         """
     )
-    manager.global_install("shared")
+    manager.glob.install("shared")
     glob = next(c for c in recording_backends if c[1] == "shared")
     specs = glob[2]  # global_install passes the spec list as a single positional arg
     assert "python>=3.11" in specs and "ripgrep" in specs
@@ -562,9 +618,9 @@ def test_global_add_remove_and_list_use_workspace_default(
         ),
     )
 
-    manager.global_add("ripgrep")
-    manager.global_remove("ripgrep", env="tools")
-    manager.global_list("rip", env="tools", json=True)
+    manager.glob.add("ripgrep")
+    manager.glob.remove("ripgrep", env="tools")
+    manager.glob.list("rip", env="tools", json=True)
 
     assert seen == [
         ("add", "w", ("ripgrep",), ""),
@@ -576,8 +632,8 @@ def test_global_add_remove_and_list_use_workspace_default(
 @pytest.mark.parametrize(
     ("call", "match"),
     [
-        (lambda manager: manager.global_add(), "No packages given"),
-        (lambda manager: manager.global_remove(), "No packages given"),
+        (lambda manager: manager.glob.add(), "No packages given"),
+        (lambda manager: manager.glob.remove(), "No packages given"),
     ],
 )
 def test_global_add_remove_require_packages(
@@ -621,13 +677,99 @@ def test_tree_renders_against_installed(
     manager.tree("default")  # exercises ok / drift / missing buckets and the transitive count
 
 
+def test_tree_renders_a_null_version_path_dep_without_crashing(
+    workspace: Workspace, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """An editable/path dep pixi lists with a null version renders as `(path)`, not a crash.
+
+    pixi reports a local path/editable checkout (the house packages installed `editable = true`)
+    with `version = null`, which used to fail `Installed` validation and take down `chefe tree`.
+    The declared dep still reads as installed, shown as `(path)`.
+    """
+    monkeypatch.setattr(
+        Pixi,
+        "installed",
+        lambda self, env: {
+            "python": Installed(version="3.12.0", kind="conda", explicit=True),
+            "lote": Installed(version=None, kind="pypi", explicit=True),
+        },
+    )
+    monkeypatch.setattr(Node, "installed", lambda self, env: {})
+    monkeypatch.setattr(Cargo, "installed", lambda self, env: {})
+    manager = workspace(
+        """
+        [deps]
+        python = ">=3.11"
+
+        [python.deps]
+        lote = "*"
+        """
+    )
+    manager.tree("default")
+    assert "(path)" in capsys.readouterr().out
+
+
 @pytest.mark.parametrize(
     ("spec", "version", "bucket"),
     [(">=1.0", None, "missing"), (">=1.0", "1.5", "ok"), (">=2.0", "1.5", "drift")],
 )
 def test_row_status_buckets(spec: str, version: str | None, bucket: str) -> None:
     """row_status maps a declared-vs-installed pair to the right tally bucket."""
-    assert PackageManager.row_status(spec, version)[2] == bucket
+    assert TreeReport.row_status(spec, version)[2] == bucket
+
+
+def test_tree_plan_reports_install_update_and_remove(
+    workspace: Workspace, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """`chefe tree --plan` is a dry run: it names what an install would add, update, and remove.
+
+    This advances the roadmap's `chefe tree` dry run. A declared-but-absent dep is an install, a
+    drifted one an update, and an explicit installed dep no longer declared a removal, while a
+    transitive (non-explicit) dep is left to the solver and never shows up as a removal.
+    """
+    monkeypatch.setattr(
+        Pixi,
+        "installed",
+        lambda self, env: {
+            "python": Installed(version="3.12.0", kind="conda", explicit=True),
+            "ripgrep": Installed(version="13.0.0", kind="conda", explicit=True),
+            "stale": Installed(version="1.0.0", kind="conda", explicit=True),
+            "libfoo": Installed(version="9.9", kind="conda", explicit=False),
+        },
+    )
+    monkeypatch.setattr(Node, "installed", lambda self, env: {})
+    monkeypatch.setattr(Cargo, "installed", lambda self, env: {})
+    manager = workspace(
+        """
+        [deps]
+        python = ">=3.11"
+        ripgrep = ">=14"
+        numpy = ">=2"
+        """
+    )
+    manager.tree("default", plan=True)
+    out = capsys.readouterr().out
+    assert "install would change" in out
+    assert "install" in out and "numpy >=2" in out  # declared, absent
+    assert "update" in out and "ripgrep 13.0.0 → >=14" in out  # declared, drifted
+    assert "remove" in out and "stale" in out  # explicit, undeclared
+    assert "libfoo" not in out  # transitive deps are the solver's, never planned for removal
+
+
+def test_tree_plan_reports_up_to_date_when_matched(
+    workspace: Workspace, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A `--plan` over a fully provisioned env reports no changes rather than an empty list."""
+    monkeypatch.setattr(
+        Pixi,
+        "installed",
+        lambda self, env: {"python": Installed(version="3.12.0", kind="conda", explicit=True)},
+    )
+    monkeypatch.setattr(Node, "installed", lambda self, env: {})
+    monkeypatch.setattr(Cargo, "installed", lambda self, env: {})
+    manager = workspace('[deps]\npython = ">=3.11"\n')
+    manager.tree("default", plan=True)
+    assert "up to date" in capsys.readouterr().out
 
 
 @pytest.mark.parametrize("dotenv", [True, False])

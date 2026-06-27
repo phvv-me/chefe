@@ -1,8 +1,16 @@
 import os
+import sys
 import tempfile
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
+
+# chefe is the one house package never editable-installed — it ships from PyPI to every host
+# (it is the dependency manager, so it cannot depend on itself from the submodule). That leaves
+# its own source tree off `sys.path`, so the suite would import nothing or, worse, the installed
+# wheel. Prepend the in-tree `src` so `chefe run test packages/chefe/tests/` exercises this
+# checkout the same way the editable packages run, on any host.
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 import pytest
 from faker import Faker

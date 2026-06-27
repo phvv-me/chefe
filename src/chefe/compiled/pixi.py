@@ -63,8 +63,11 @@ class PixiManifest(Model):
     def task(spec: Task) -> Task:
         """Translate a mise-style task into pixi's (`run` -> `cmd`, `depends` -> `depends-on`).
 
-        Tasks run from the repo root, which is one directory up from the generated `.chefe/`,
-        so repo-relative commands (`python -m pkg`) resolve as written.
+        A task that runs a command runs it from the repo root, which is one directory up from the
+        generated `.chefe/`, so repo-relative commands (`python -m pkg`) resolve as written, and a
+        `dir` rebases that root. A command-less aggregator (only `depends`) carries no working
+        directory: pixi rejects `cwd` without a `cmd`, and a directory means nothing with no
+        command to run there, so the rebase is skipped for it.
         """
         out: dict[str, Toml] = {}
         if isinstance(spec, str):
@@ -72,8 +75,9 @@ class PixiManifest(Model):
         else:
             renamed = {"run": "cmd", "depends": "depends-on", "dir": "cwd"}
             out = {renamed.get(key, key): value for key, value in spec.items()}
-        cwd = str(out.get("cwd", ""))
-        out["cwd"] = cwd if cwd.startswith("/") else f"../{cwd}" if cwd else ".."
+        if "cmd" in out:
+            cwd = str(out.get("cwd", ""))
+            out["cwd"] = cwd if cwd.startswith("/") else f"../{cwd}" if cwd else ".."
         return out
 
     @classmethod

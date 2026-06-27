@@ -115,6 +115,23 @@ def test_cargo_installed_parses_crates_toml(tmp_path: Path) -> None:
     assert cargo.installed("missing") == {}
 
 
+def test_cargo_installed_skips_malformed_crate_keys(tmp_path: Path) -> None:
+    """A `.crates.toml` key missing its version is skipped, not crashed on.
+
+    A well-formed key reads `"name version (source)"`; a stray single-token key used to index
+    past the split's end and raise `IndexError`, taking down `chefe tree` and `chefe install`
+    on an otherwise healthy env. The malformed entry is now dropped and the good one survives.
+    """
+    cargo = Cargo(tmp_path, Pixi(tmp_path))
+    root = cargo.root("default")
+    root.mkdir(parents=True)
+    (root / ".crates.toml").write_text(
+        '[v1]\n"ripgrep 14.1.0 (registry+https://x)" = ["rg"]\n"orphan" = ["x"]\n'
+    )
+    found = cargo.installed("default")
+    assert found == {"ripgrep": Installed(version="14.1.0", kind="cargo")}
+
+
 def test_cargo_sync_reconciles_declared_against_installed(
     mocker: MockerFixture, tmp_path: Path
 ) -> None:
@@ -163,6 +180,32 @@ def test_cargo_sync_reconciles_declared_against_installed(
     assert not any("kept" in body for body in bodies)  # satisfied, skipped
 
 
+@pytest.mark.parametrize(
+    ("spec", "expected"),
+    [
+        (
+            {"git": "https://x/r", "branch": "main"},
+            ("--git", "https://x/r", "--branch", "main"),
+        ),
+        (
+            {"version": ">=1", "path": "../crate"},
+            ("--version", ">=1", "--path", "../crate"),
+        ),
+        (
+            {"git": "https://x/r", "tag": "v1", "rev": "abc", "locked": True},
+            ("--git", "https://x/r", "--tag", "v1", "--rev", "abc", "--locked"),
+        ),
+    ],
+    ids=["git-branch", "version-path", "git-tag-rev-locked"],
+)
+def test_cargo_install_args_threads_source_overrides(
+    spec: dict[str, object], expected: tuple[str, ...]
+) -> None:
+    """A crate's `git`/`path`/`branch`/`tag`/`rev`/`locked` ride through as their cargo flags,
+    so a source-pinned crate installs exactly as declared instead of from the registry."""
+    assert Cargo.install_args(Spec.model_validate(spec)) == expected
+
+
 def test_pixi_scope_pins_manifest_path(tmp_path: Path) -> None:
     """The pixi backend injects `--manifest-path` so every call targets the env it owns."""
     pixi = Pixi(tmp_path)
@@ -194,6 +237,36 @@ def test_pixi_installed_parses_list_json(
     found = pixi.installed("default")
     assert found["numpy"].kind == "conda" and found["numpy"].explicit
     assert found["rich"].explicit is False
+
+
+def test_pixi_installed_tolerates_a_null_or_absent_version(
+    fp: FakeProcess, tmp_path: Path, tool_paths: dict[str, str]
+) -> None:
+    """An editable/path dep pixi reports with a null (or missing) version must not crash `tree`.
+
+    pixi emits ``"version": null`` for a local path/editable checkout (no registry pin), and the
+    record may omit the key entirely; both map to an `Installed` whose version renders as `(path)`.
+    """
+    pixi = Pixi(tmp_path)
+    records = [
+        {"name": "lote", "version": None, "kind": "pypi", "is_explicit": True},
+        {"name": "chefe", "kind": "pypi", "is_explicit": True},
+    ]
+    fp.register(
+        [
+            tool_paths["pixi"],
+            "list",
+            "--manifest-path",
+            str(pixi.manifest),
+            "-e",
+            "default",
+            "--json",
+        ],
+        stdout=json.dumps(records),
+    )
+    found = pixi.installed("default")
+    assert found["lote"].version is None and found["lote"].shown_version == "(path)"
+    assert found["chefe"].version is None and found["chefe"].shown_version == "(path)"
 
 
 def test_pixi_shell_hook_returns_activation_script(
@@ -308,7 +381,7 @@ def test_global_install_spans_all_ecosystems(
         *(str(prefix / "bin" / t) for t in ("python", "npm", "cargo")),
     ):
         fp.register([argv0, fp.any()], stdout="")
-    PackageManager(tmp_path).global_install()
+    PackageManager(tmp_path).glob.install()
     cmds = [list(c) for c in fp.calls]
     conda = next(c for c in cmds if c[0] == tool_paths["pixi"])
     assert {"python", "nodejs", "rust", "ripgrep"} <= set(conda)
@@ -354,6 +427,11 @@ def test_every_seam_raises_chefe_error_on_failure(
     call, each ecosystem global-install helper, and the one-time pixi bootstrap installer."""
     monkeypatch.setenv("PIXI_HOME", str(tmp_path / "pixi"))
     prefix = tmp_path / "pixi" / "envs" / "demo"
+    # `global_add` first queries `global list --json` to pick add-vs-create; say the env exists
+    # so the failure under test is the add itself, not the existence probe.
+    fp.register(
+        [tool_paths["pixi"], "global", "list", "--json"], stdout=json.dumps([{"name": "demo"}])
+    )
     fp.register([tool_paths["pixi"], fp.any()], returncode=1)
     fp.register([str(local["sh"].executable), fp.any()], returncode=1)
     for binary in ("python", "npm", "cargo"):
@@ -371,10 +449,35 @@ def test_exec_preserves_exit_code(
     assert Pixi(tmp_path).exec((), ("ruff", "check")) == code
 
 
+def test_global_add_creates_env_when_missing(
+    fp: FakeProcess, tool_paths: dict[str, str], tmp_path: Path
+) -> None:
+    """A conda `global_add` against a non-existent env uses `install` to create it on demand.
+
+    `pixi global add` requires an existing `--environment`; `pixi global install` creates one,
+    so chefe picks the create verb whenever `global list` shows the env is not there yet.
+    """
+    fp.register([tool_paths["pixi"], "global", "list", "--json"], stdout=json.dumps([]))
+    fp.register([tool_paths["pixi"], fp.any()], stdout="")
+    Pixi(tmp_path).global_add("life", ("ripgrep",))
+    assert list(fp.calls[-1]) == [
+        tool_paths["pixi"],
+        "global",
+        "install",
+        "--environment",
+        "life",
+        "ripgrep",
+    ]
+
+
 def test_global_add_remove_and_list_build_pixi_args(
     fp: FakeProcess, tool_paths: dict[str, str], tmp_path: Path
 ) -> None:
     """The lightweight global helpers mirror Pixi's global subcommands."""
+    # The env already exists, so `global_add` takes the plain `add` verb (not create).
+    fp.register(
+        [tool_paths["pixi"], "global", "list", "--json"], stdout=json.dumps([{"name": "shared"}])
+    )
     for _ in range(4):
         fp.register([tool_paths["pixi"], fp.any()], stdout="")
     pixi = Pixi(tmp_path)

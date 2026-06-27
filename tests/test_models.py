@@ -1,5 +1,6 @@
 import json
 import tomllib
+from pathlib import Path
 
 import pytest
 import tomlkit
@@ -567,3 +568,38 @@ def test_unknown_table_error_points_to_a_chefe_upgrade() -> None:
     message = str(caught.value)
     assert "no matching package in [deps]" in message  # the cause, self-contained
     assert "0.0.test" in message  # names the running version, so the user knows to upgrade
+
+
+def test_pyproject_version_matches_changelog_head() -> None:
+    """The packaged version and the top changelog entry agree, so neither drifts unseen.
+
+    Releases are cut from `pyproject.toml`, and `chefe --version` plus the upgrade hints in
+    error messages read from that same metadata. A changelog that ran ahead of `pyproject`
+    (as 0.0.21 once did) is exactly the silent drift this guards against.
+    """
+    root = Path(__file__).resolve().parent.parent
+    packaged = tomllib.loads((root / "pyproject.toml").read_text())["project"]["version"]
+    headings = [
+        line.removeprefix("## ").strip()
+        for line in (root / "CHANGELOG.md").read_text().splitlines()
+        if line.startswith("## ")
+    ]
+    assert headings[0] == packaged
+
+
+def test_standalone_manager_is_provisioned_from_manager_field() -> None:
+    """A standalone manager (pnpm/yarn/bun/uv) is auto-added to conda deps from `manager` alone;
+    a bundled manager, a compiler-style manager, and an explicit pin are all left untouched."""
+    pnpm = Scope.model_validate({"deps": {"nodejs": "*"}, "nodejs": {"manager": "pnpm"}})
+    assert pnpm.tables({})["dependencies"] == {"nodejs": "*", "pnpm": "*"}
+
+    npm = Scope.model_validate({"deps": {"nodejs": "*"}, "nodejs": {"manager": "npm"}})
+    assert npm.tables({})["dependencies"] == {"nodejs": "*"}
+
+    pinned = Scope.model_validate(
+        {"deps": {"nodejs": "*", "pnpm": ">=10"}, "nodejs": {"manager": "pnpm"}}
+    )
+    assert pinned.tables({})["dependencies"] == {"nodejs": "*", "pnpm": ">=10"}
+
+    compiler = Scope.model_validate({"deps": {"zig": "*"}, "zig": {"manager": "zig"}})
+    assert compiler.tables({})["dependencies"] == {"zig": "*"}

@@ -59,6 +59,14 @@ class Registry(Model):
     deps: dict[str, Spec] = {}
 
 
+# Standalone package managers chefe provisions from `manager` alone: each one's conda-forge
+# package name equals the manager name, so `[nodejs] manager = "pnpm"` (or yarn/bun, or
+# `[python] manager = "uv"`) needs no redundant entry in `[deps]`. npm/pip/cargo ship with
+# their runtime, and a compiler or other `manager` executable is provisioned via its own
+# runtime package, so neither is listed here.
+PROVISIONABLE_MANAGERS = frozenset({"pnpm", "yarn", "bun", "uv"})
+
+
 class ToolchainSpec(FlexModel):
     """A runtime-keyed toolchain table, discovered from `[deps]` package names.
 
@@ -78,6 +86,14 @@ class ToolchainSpec(FlexModel):
     def all_deps(self) -> dict[str, Spec]:
         """Runtime and dev dependency maps merged for installation and inspection."""
         return {**self.deps, **self.dev.deps}
+
+    def manager_package(self) -> str | None:
+        """The conda package to provision for a standalone manager, or None.
+
+        Lets `[nodejs] manager = "pnpm"` (or yarn/bun, or `[python] manager = "uv"`) provision
+        the manager itself, so it need not be repeated in `[deps]`.
+        """
+        return self.manager if self.manager in PROVISIONABLE_MANAGERS else None
 
     def options(self) -> dict[str, Toml]:
         """The extra non-dependency settings carried by this toolchain table."""
@@ -134,8 +150,13 @@ class Scope(Model):
         result is a plain nested `Toml` that pixi validates back into `Spec` on its own fields.
         """
         out: dict[str, Toml] = {}
-        if self.deps:
-            out["dependencies"] = {name: spec.to_toml() for name, spec in self.deps.items()}
+        dependencies: dict[str, Toml] = {name: spec.to_toml() for name, spec in self.deps.items()}
+        # Provision a non-bundled toolchain manager (pnpm/yarn/bun/uv) unless already pinned.
+        for toolchain in self.toolchains().values():
+            if (pkg := toolchain.manager_package()) and pkg not in dependencies:
+                dependencies[pkg] = "*"
+        if dependencies:
+            out["dependencies"] = dependencies
         if (python := self.toolchains().get("python")) and python.all_deps():
             out["pypi-dependencies"] = {
                 name: spec.with_index(indexes).to_toml()

@@ -154,3 +154,30 @@ def test_local_path_deps_resolve_from_the_chefe_dir() -> None:
     assert pixi.pypi_dependencies["there"].model_extra == {"path": "/opt/there", "editable": True}
     # a conda dependency *named* `path` keeps its version string, not a rerooted source
     assert pixi.dependencies["path"].version == ">=16"
+
+
+def test_task_working_directory_only_attaches_to_a_command() -> None:
+    """A command task is rebased one level up (out of `.chefe/`) and a `dir` reroots that base, so
+    a bare command runs from the repo root and a directory'd one from that subtree. A command-less
+    aggregator (only `depends`) carries no `cwd`: pixi rejects a working directory without a
+    command and the directory would be meaningless, so the aggregator compiles to `depends-on`."""
+    pixi = PixiManifest.from_manifest(
+        Manifest.from_toml(
+            """
+            [workspace]
+            name = "demo"
+            platforms = ["linux-64"]
+
+            [deps]
+            python = ">=3.11"
+
+            [tasks]
+            unit = { run = "python -m pytest", dir = "packages/here" }
+            build = "python -m demo.build"
+            all = { depends = ["unit", "build"] }
+            """
+        )
+    )
+    assert pixi.tasks["unit"] == {"cmd": "python -m pytest", "cwd": "../packages/here"}
+    assert pixi.tasks["build"] == {"cmd": "python -m demo.build", "cwd": ".."}
+    assert pixi.tasks["all"] == {"depends-on": ["unit", "build"]}

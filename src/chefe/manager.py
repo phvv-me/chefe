@@ -1,7 +1,7 @@
+import hashlib
 import os
 import shutil
 import tomllib
-from collections import Counter
 from collections.abc import Generator
 from contextlib import contextmanager
 from pathlib import Path
@@ -13,23 +13,25 @@ from plumbum import local
 from plumbum.commands.processes import CommandNotFound
 from pydantic import ValidationError
 from rich.console import Console
-from rich.table import Table
 
-from . import ENV_DIR, MANIFEST, NAME, PIXI_RESOLVED
+from . import ENV_DIR, MANIFEST, PIXI_RESOLVED
 from .backends import Cargo, Node, Pixi
 from .compiled import PackageJson, PixiManifest
 from .console import markup
 from .environment import Environment
 from .errors import ChefeError, manifest_validation_text
+from .global_env import GlobalEnv
 from .manifest import Document, Manifest, Spec
 from .state import Declared
-from .utils import current_platform, satisfied
+from .tree_report import KIND_SOURCES, TreeReport
+from .utils import current_platform
+
+# Records the manifest digest a sync compiled from, so a later command can tell when the
+# generated env has gone stale against an edited manifest and recompile before activating.
+SYNCED = ".synced"
 
 # The generated per-host activation script, beside the compiled pixi manifest.
 ACTIVATE = "activate.sh"
-
-# pixi reports Python packages as `pypi`; the manifest declares them under `[python]`.
-KIND_SOURCES = {"pypi": "python"}
 
 # The generated dotenv loader, sourced first by pixi activation when `workspace.dotenv` is on.
 # Activation scripts run from the manifest dir (`.chefe/`), so `../.env` is the workspace root.
@@ -46,10 +48,10 @@ DOTENV_SH = (
 class PackageManager:
     """A workspace: one manifest, compiled into a generated env and run by the real tools."""
 
-    def __init__(self, root: Path = Path()) -> None:
+    def __init__(self, root: Path | None = None) -> None:
         # Absolute so the env bin dirs put on PATH stay valid when a backend runs
         # from inside the env: a relative npm path breaks once the cwd changes.
-        root = root.absolute()
+        root = (root if root is not None else self.discover()).absolute()
         self.manifest = root / MANIFEST
         self.root = root
         self.out = root / ENV_DIR
@@ -57,6 +59,22 @@ class PackageManager:
         self.pixi = Pixi(self.out)
         self.cargo = Cargo(self.out, self.pixi)
         self.console = Console()
+        self.glob = GlobalEnv(self.pixi, self.load, self.console)
+        self.report = TreeReport(self.console)
+
+    @staticmethod
+    def discover(start: Path | None = None) -> Path:
+        """Walk up from ``start`` (default cwd) to the nearest dir holding the manifest.
+
+        Running chefe from a subdir should still find its workspace, the way git locates `.git`.
+        Falls back to ``start`` itself when no manifest is found, so `chefe init` in a fresh dir
+        still scaffolds there and `load()` later raises the actionable not-found error.
+        """
+        start = (start or Path()).absolute()
+        for directory in (start, *start.parents):
+            if (directory / MANIFEST).exists():
+                return directory
+        return start
 
     def load(self) -> Manifest:
         """The validated manifest."""
@@ -86,7 +104,16 @@ class PackageManager:
 
     @contextmanager
     def activated(self, env: str = "default") -> Generator[None]:
-        """Expose managed ecosystem executables on PATH for commands and shells."""
+        """Expose managed ecosystem executables on PATH for commands and shells.
+
+        Recompiles first when the manifest changed since the last sync, so an edit to
+        `chefe.toml` (a new env var, a dep) is never served from a stale generated env.
+        """
+        if self.stale(env):
+            self.console.print(
+                markup(t"[yellow]{self.manifest.name} changed, recompiling[/yellow]")
+            )
+            self.sync(env)
         with self.pixi.activated(env):
             manifest = self.load()
             toolchains = manifest.toolchains_for(env, current_platform())
@@ -114,6 +141,23 @@ class PackageManager:
             markup(t"[green]created[/green] {self.manifest.name} for [bold]{name}[/bold]")
         )
 
+    def digest(self) -> str:
+        """A content hash of the manifest, the key that decides whether a compile is current."""
+        return hashlib.sha256(self.manifest.read_bytes()).hexdigest()
+
+    def stale(self, env: str = "default") -> bool:
+        """Whether ``env``'s generated env predates the current manifest content.
+
+        True once a compile exists but the manifest has changed since it ran (or was synced by
+        an older chefe that left no marker), so a command can recompile before activating rather
+        than serve env vars and deps from a stale `.chefe/`. A workspace with nothing compiled
+        yet is not stale, since first provisioning is `install`'s job, not a `run`'s.
+        """
+        if not self.pixi.manifest.exists():
+            return False
+        marker = self.out / f"{SYNCED}.{env}"
+        return not marker.exists() or marker.read_text() != self.digest()
+
     def sync(self, env: str = "default") -> None:
         """Compile the manifest into the generated `{pixi.toml, package.json}` for ``env``."""
         manifest = self.load()
@@ -127,6 +171,8 @@ class PackageManager:
         else:
             # The last nodejs dep is gone; a stale package.json would keep reinstalling it.
             node.manifest.unlink(missing_ok=True)
+        # Stamp the digest this compile came from so `stale()` can later spot an edited manifest.
+        (self.out / f"{SYNCED}.{env}").write_text(self.digest())
         self.console.print(f"[green]synced[/green] {self.manifest.name} → {self.out.name}/")
 
     def install(
@@ -185,125 +231,58 @@ class PackageManager:
         shutil.rmtree(self.out, ignore_errors=True)
         self.console.print(f"[green]removed[/green] {self.out.name}/")
 
-    def global_install(self, name: str = "") -> None:
-        """Install every language/toolchain's declared deps into one shared global pixi env.
-
-        Conda goes through `pixi global`; adapters then use binaries from that global env for
-        languages that need a second install step, such as Python, Node.js, and Rust.
-        """
-        manifest = self.load()
-        name = name or manifest.workspace.name
-
-        def spec(pkg: str, dep: Spec) -> str:
-            version = dep.version
-            if version is None or version == "*":
-                return pkg
-            # A bare pin like "3.11" needs an operator, or it reads as part of the name.
-            return f"{pkg}{version}" if version[0] in "<>=!~" else f"{pkg}=={version}"
-
-        toolchains = manifest.toolchains()
-        conda = dict(manifest.deps)
-        self.pixi.global_install(name, [spec(pkg, dep) for pkg, dep in conda.items()])
-
-        prefix = self.pixi.global_prefix(name)
-        if (python := toolchains.get("python")) and python.all_deps():
-            self.pixi.global_pip(prefix, [spec(p, d) for p, d in python.all_deps().items()])
-        if (nodejs := toolchains.get("nodejs")) and nodejs.all_deps():
-            self.pixi.global_npm(
-                prefix,
-                [
-                    p if d.version in (None, "*") else f"{p}@{d.version}"
-                    for p, d in nodejs.all_deps().items()
-                ],
-            )
-        if (rust := toolchains.get("rust")) and rust.all_deps():
-            self.pixi.global_cargo(prefix, list(rust.all_deps()))
-
-        total = sum(
-            len(group)
-            for group in (
-                manifest.deps,
-                *(toolchain.all_deps() for toolchain in toolchains.values()),
-            )
-        )
-        self.console.print(
-            markup(t"[green]installed[/green] {total} deps into [bold]{name}[/bold]")
-        )
-
-    def global_add(
-        self,
-        *packages: Annotated[str, Parameter(allow_leading_hyphen=True)],
-        env: Annotated[
-            str,
-            Parameter(
-                name=("--environment", "-e"),
-                help="Global environment to mutate; defaults to workspace.name.",
-            ),
-        ] = "",
-    ) -> None:
-        """Add conda packages to a shared global pixi env."""
-        if not packages:
-            raise ChefeError("No packages given. Usage: `chefe global add <package>...`.")
-        name = env or self.load().workspace.name
-        self.pixi.global_add(name, packages)
-        self.console.print(
-            markup(t"[green]added[/green] {', '.join(packages)} to [bold]{name}[/bold]")
-        )
-
-    def global_remove(
-        self,
-        *packages: Annotated[str, Parameter(allow_leading_hyphen=True)],
-        env: Annotated[
-            str,
-            Parameter(
-                name=("--environment", "-e"),
-                help="Global environment to mutate; defaults to workspace.name.",
-            ),
-        ] = "",
-    ) -> None:
-        """Remove conda packages from a shared global pixi env."""
-        if not packages:
-            raise ChefeError("No packages given. Usage: `chefe global remove <package>...`.")
-        name = env or self.load().workspace.name
-        self.pixi.global_remove(name, packages)
-        self.console.print(
-            markup(t"[green]removed[/green] {', '.join(packages)} from [bold]{name}[/bold]")
-        )
-
-    def global_list(
-        self,
-        regex: str = "",
-        env: Annotated[
-            str,
-            Parameter(name=("--environment", "-e"), help="Show packages inside one global env."),
-        ] = "",
-        json: bool = False,
-        sort_by: str = "",
-    ) -> None:
-        """Show installed global envs, or packages inside one global env."""
-        self.pixi.global_list(env, regex, json, sort_by)
-
-    def run(self, task: str, *args: Annotated[str, Parameter(allow_leading_hyphen=True)]) -> None:
+    def run(self, *argv: Annotated[str, Parameter(allow_leading_hyphen=True)]) -> None:
         """Run a task or installed executable inside the env, exiting with its code.
 
         Declared `[tasks]` come first; any other name falls through to an executable on the
         activated PATH. Both go through `pixi run` so the manifest's `[activation]` scripts
         and env vars always apply. A name that is neither fails with guidance up front,
         instead of pixi's bare command-not-found.
+
+        A leading `--env <name>` (or `-e <name>`) selects a non-default `[envs.*]`
+        environment, e.g. `chefe run --env serving python ...`. The whole command line is
+        taken as one leading-hyphen var-positional so the env flag and any hyphenated
+        passthrough flags reach chefe verbatim instead of being parsed as chefe options.
         """
-        with self.activated():
-            if task not in self.load().tasks:
+        env, rest = self.env_from(argv)
+        with self.activated(env):
+            head = rest[0]
+            if head not in self.load().tasks:
                 try:
-                    local[task]
+                    local[head]
                 except CommandNotFound as error:
                     raise ChefeError(
-                        f"No task or executable named `{task}` was found in the active "
+                        f"No task or executable named `{head}` was found in the `{env}` "
                         "environment. "
                         "Run `chefe install`, check `chefe tree`, or add it to [tasks]."
                     ) from error
-            code = self.pixi.exit_code("run", task, *args)
+            code = self.pixi.exit_code("run", "-e", env, *rest)
         if code:
             raise SystemExit(code)
+
+    def env_from(self, argv: tuple[str, ...]) -> tuple[str, tuple[str, ...]]:
+        """Split a leading `--env/-e <name>` off the command line, returning `(env, rest)`.
+
+        `rest` is the command to run with the env flag removed and must be non-empty (its
+        first token is the task or executable). A missing command, an `--env` without a
+        following name, or one not naming a declared `[envs.*]` is a `ChefeError` so the
+        mistake fails fast rather than reaching pixi as a confusing bare error.
+        """
+        if argv and argv[0] in ("--env", "-e"):
+            if len(argv) < 3:
+                raise ChefeError("`--env` needs an environment name and a command to run.")
+            env, rest = argv[1], argv[2:]
+        else:
+            env, rest = "default", argv
+        if not rest:
+            raise ChefeError("`chefe run` needs a task or executable to run.")
+        if env != "default" and env not in self.load().envs:
+            declared = ", ".join(sorted(self.load().envs)) or "(none)"
+            raise ChefeError(
+                f"No environment `{env}` is declared. Add an `[envs.{env}]` table or use one of: "
+                f"{declared}."
+            )
+        return env, rest
 
     def x(
         self,
@@ -408,41 +387,36 @@ class PackageManager:
         document.pull(tomlkit.parse(self.pixi.manifest.read_text()).unwrap())
         document.save()
 
-    @staticmethod
-    def row_status(spec: str, version: str | None) -> tuple[str, str, str]:
-        """The (mark, shown version, tally bucket) for a declared dep vs what's installed."""
-        if version is None:
-            return "[red]✗ missing[/red]", "[dim]·[/dim]", "missing"
-        if satisfied(spec, version):
-            return "[green]✓[/green]", version, "ok"
-        return "[yellow]≠ drift[/yellow]", f"[yellow]{version}[/yellow]", "drift"
+    def installed_by_source(self, env: str) -> dict[str, dict[str, str]]:
+        """Installed versions for ``env`` grouped by manifest source (conda/python/nodejs/rust).
 
-    def tree(self, env: str = "default") -> None:
-        """Show declared vs installed deps, each checked in its own ecosystem."""
-        declared = self.declared(env)
-        provisioned = self.pixi.installed(env)
-        node_installed = {
-            n: inst.version for n, inst in self.node(self.load(), env).installed(env).items()
-        }
-        cargo_installed = {name: inst.version for name, inst in self.cargo.installed(env).items()}
+        Each ecosystem is queried through its own backend, and pixi's `pypi` kind is folded onto
+        the `python` source so a declared dep lines up with what got provisioned for it.
+        """
+        node = self.node(self.load(), env)
         by_source: dict[str, dict[str, str]] = {
-            "nodejs": node_installed,
-            "rust": cargo_installed,
+            "nodejs": {n: i.shown_version for n, i in node.installed(env).items()},
+            "rust": {n: i.shown_version for n, i in self.cargo.installed(env).items()},
         }
-        for name, inst in provisioned.items():
-            by_source.setdefault(KIND_SOURCES.get(inst.kind, inst.kind), {})[name] = inst.version
-        table = Table(title=f"{NAME} · {env} · declared vs installed", header_style="bold cyan")
-        for column in ("package", "language", "declared", "installed", ""):
-            table.add_column(column)
-        tally: Counter[str] = Counter()
-        for name, dep in sorted(declared.items()):
-            installed = by_source.get(dep.source, {}).get(name)
-            mark, shown, bucket = self.row_status(dep.spec, installed)
-            tally[bucket] += 1
-            table.add_row(name, dep.source, dep.spec, shown, mark)
-        self.console.print(table)
-        transitive = sum(1 for inst in provisioned.values() if not inst.explicit)
-        self.console.print(
-            f"[green]{tally['ok']} ok[/green] · [yellow]{tally['drift']} drift[/yellow] · "
-            f"[red]{tally['missing']} missing[/red] · [dim]{transitive} transitive installed[/dim]"
-        )
+        for name, inst in self.pixi.installed(env).items():
+            by_source.setdefault(KIND_SOURCES.get(inst.kind, inst.kind), {})[name] = (
+                inst.shown_version
+            )
+        return by_source
+
+    def tree(
+        self, env: str = "default", plan: Annotated[bool, Parameter(name="--plan")] = False
+    ) -> None:
+        """Show declared vs installed deps, each checked in its own ecosystem.
+
+        `--plan` turns the report into a dry run: instead of the full table, it lists what a
+        `chefe install` would change (install the missing, update the drifted, remove the
+        explicit deps no longer declared) without touching the env.
+        """
+        declared = self.declared(env)
+        by_source = self.installed_by_source(env)
+        provisioned = self.pixi.installed(env)
+        if plan:
+            self.report.plan(env, declared, by_source, provisioned)
+        else:
+            self.report.table(env, declared, by_source, provisioned)

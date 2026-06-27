@@ -4,6 +4,59 @@ All notable changes to chefe are documented here.
 
 The format follows Keep a Changelog, and releases are cut from the version in `pyproject.toml`.
 
+## 0.0.23
+
+### Fixed
+
+- A command no longer serves a stale generated env after `chefe.toml` is edited. `chefe run`
+  (and any command that activates the env) read the already-compiled `.chefe/pixi.toml` and
+  never noticed the manifest had changed, so a freshly added `[env]` var or dep silently did
+  nothing until a manual `chefe sync`. Each sync now stamps the manifest's content digest, and
+  activation recompiles first when that digest no longer matches, so an edit always takes effect.
+
+### Changed
+
+- A runtime `chefe global add` (`-l nodejs`, `-l python`, `-l rust`) against an environment that
+  does not exist yet now provisions the matching runtime on demand (`pixi global install
+  nodejs|python|rust`) before installing the package, instead of dead-ending with a pointer to
+  `chefe global install`. So `chefe global add codex -l nodejs` is a single command on a clean
+  machine, the conda `install`-verb create path extended to the runtime languages.
+
+## 0.0.22
+
+### Added
+
+- `chefe completions [shell]` prints the shell-completion script for bash, zsh, or fish (it
+  follows your `$SHELL` when you name none), so you can pipe it where your shell expects, e.g.
+  `chefe completions zsh > ~/.zfunc/_chefe` or `eval "$(chefe completions)"`.
+- `chefe tree --plan` turns the report into a dry run that lists what a `chefe install` would
+  change, install the missing deps, update the drifted ones, and remove the explicit deps no
+  longer declared, without touching the environment. Transitive installs stay the solver's.
+
+### Fixed
+
+- `chefe tree` and `chefe install` no longer crash with an `IndexError` when a crate's
+  `.crates.toml` entry is missing its version field. The malformed record is skipped and the
+  rest of the env still reports.
+- The published version had drifted: `pyproject.toml` was left at 0.0.20 while the changelog
+  documented 0.0.21, so the running `chefe --version` and the upgrade hints in error messages
+  reported a stale number. The version is realigned here.
+
+## 0.0.21
+
+### Fixed
+
+- `chefe global add` learned `-l/--language`, so `npm`, `cargo`, and `pypi` globals install
+  through the env's own package manager instead of being rejected by `pixi global add`. conda
+  stays the default. A runtime add against an env that has no runtime yet now points at
+  `chefe global install` rather than failing on a missing binary.
+- A conda `chefe global add` against a global env that does not exist yet creates it on demand
+  (it picks `pixi global install` over `pixi global add`), instead of dead-ending with
+  "Environment ... doesn't exist".
+- Workspace discovery walks up from the current directory to the nearest `chefe.toml`, the way
+  git finds `.git`, so chefe works from any subdirectory of a workspace and only reports the
+  manifest missing when none exists above.
+
 ## 0.0.19
 
 ### Changed

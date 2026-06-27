@@ -109,7 +109,7 @@ class Pixi(Tool):
         records = json.loads(self.command["list", *self.scope(), "-e", env, "--json"]())
         return {
             rec["name"]: Installed(
-                version=rec["version"], kind=rec["kind"], explicit=rec["is_explicit"]
+                version=rec.get("version"), kind=rec["kind"], explicit=rec["is_explicit"]
             )
             for rec in records
         }
@@ -120,9 +120,20 @@ class Pixi(Tool):
         if not self.foreground(self.command[argv]):
             raise ChefeError("`pixi global install` failed (see its output above)")
 
+    def global_exists(self, name: str) -> bool:
+        """Whether a global env named ``name`` already exists (per `pixi global list`)."""
+        envs = json.loads(self.command["global", "list", "--json"]())
+        return any(env["name"] == name for env in envs)
+
     def global_add(self, name: str, specs: tuple[str, ...]) -> None:
-        """Add conda specs to a shared global pixi env named ``name``."""
-        argv = ("global", "add", *self.flags(environment=name), *specs)
+        """Add conda specs to global env ``name``, creating the env first if it is missing.
+
+        `pixi global add` requires an existing `--environment`, while `pixi global install`
+        creates one on demand and is additive for an existing env, so the latter verb covers
+        both the create and the add and chefe picks it whenever the env is not there yet.
+        """
+        verb = "add" if self.global_exists(name) else "install"
+        argv = ("global", verb, *self.flags(environment=name), *specs)
         if not self.foreground(self.command[argv]):
             raise ChefeError("`pixi global add` failed (see its output above)")
 

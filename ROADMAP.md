@@ -40,10 +40,14 @@ Make chefe complete and trustworthy across the adapters and generic toolchain ta
   only where they were written.
 - [ ] **Friendlier failures.** Clear messages when a tool, runtime, or index is missing, plus a
   `chefe doctor` that checks declared toolchains and reports what is off.
-- [ ] **Richer `chefe tree`.** Show the language/toolchain per package, drift between declared and installed,
-  and what an install would change.
-- [ ] **CLI ergonomics.** Shell completions, and an `exec` alias for `x` so `chefe exec` works
-  for people who reach for the longer verb.
+- [ ] **Richer `chefe tree`.** Shows the language/toolchain per package and the drift between
+  declared and installed, and `chefe tree --plan` is a dry run of what an install would change
+  (install the missing, update the drifted, remove the explicit-but-undeclared). Still ahead: a
+  per-package transitive breakdown.
+- [ ] **CLI ergonomics.** `chefe completions [shell]` emits a bash/zsh/fish completion script
+  (following `$SHELL` by default), and the `exec` alias for `x` ships so `chefe exec` works for
+  people who reach for the longer verb. Still ahead: an installer that drops the script straight
+  into the shell's completion dir.
 - [ ] **LLM-friendly docs.** Polish the generated `llms.txt` and `llms-full.txt` so assistants
   get clean, sectioned context, keep them building in CI, and link them from the README.
 - [ ] **Further i18n.** Grow beyond the current four locales (pt-BR, es, ja, zh) and keep every

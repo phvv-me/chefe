@@ -32,10 +32,12 @@ class Cargo(Tool):
             entries = tomllib.loads(crates.read_text()).get("v1", {})
         except FileNotFoundError:
             return {}
+        # A `.crates.toml` key reads `"name version (source)"`; an entry missing the
+        # version is not a usable install record, so skip it rather than index past its end.
         return {
             parts[0]: Installed(version=parts[1], kind="cargo")
             for key in entries
-            if (parts := key.split())
+            if len(parts := key.split()) >= 2
         }
 
     def sync(self, env: str, declared: dict[str, Spec]) -> None:
