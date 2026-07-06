@@ -8,6 +8,12 @@ The format follows Keep a Changelog, and releases are cut from the version in `p
 
 ### Fixed
 
+- `chefe run <name> --help` (and `-h`) now reaches the task or executable instead of printing
+  chefe run's own usage. cyclopts intercepts its help flags anywhere in a command's tokens, so
+  the flag never made it into the leading-hyphen passthrough; the `run` command now registers
+  with `help_flags=()` and forwards them itself. A help flag with no task name before it, as in
+  `chefe run --help` or `chefe run -e serving --help`, still prints the run command's page, and
+  `chefe --help` is untouched.
 - A command no longer serves a stale generated env after `chefe.toml` is edited. `chefe run`
   (and any command that activates the env) read the already-compiled `.chefe/pixi.toml` and
   never noticed the manifest had changed, so a freshly added `[env]` var or dep silently did

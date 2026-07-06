@@ -2,7 +2,7 @@ import functools
 import os
 from collections.abc import Callable
 from pathlib import Path
-from typing import Literal
+from typing import Literal, Protocol
 
 from cyclopts import App
 
@@ -15,6 +15,11 @@ from .manager import PackageManager
 # user passes none is read from their login `$SHELL`.
 Shell = Literal["bash", "zsh", "fish"]
 SHELLS: tuple[Shell, ...] = ("bash", "zsh", "fish")
+
+# The flags cyclopts would normally intercept as its own help request. `run` disables that
+# interception (it registers with `help_flags=()`) and forwards them like any passthrough
+# flag, so these are the tokens `run_command` itself must recognize as asking about `run`.
+HELP_FLAGS = ("--help", "-h")
 
 
 def handled[**P, R](manager: PackageManager, method: Callable[P, R]) -> Callable[P, R]:
@@ -58,6 +63,36 @@ def completions_command(app: App) -> Callable[[Shell | None], None]:
     return completions
 
 
+class RunCommand(Protocol):
+    """The registered `run` surface: the whole command line as one var-positional."""
+
+    def __call__(self, *argv: str) -> None: ...
+
+
+def run_command(manager: PackageManager, app: App) -> RunCommand:
+    """A `run` command that hands help flags to the target instead of to cyclopts.
+
+    cyclopts intercepts its help flags anywhere in a command's tokens, so `chefe run atpx
+    --help` printed chefe run's own usage and the flag never reached atpx. The command
+    therefore registers with `help_flags=()` and handles help itself. A help flag after a
+    task or executable name passes through verbatim like any other flag, while a help flag
+    in place of a name (only the optional leading `--env <name>`/`-e <name>` may precede
+    it) asks about `run` itself, so the command's own page prints through the built
+    ``app``, the same closure idiom as `completions`.
+    """
+    command = handled(manager, manager.run)
+
+    @functools.wraps(command)
+    def run(*argv: str) -> None:
+        target = argv[2:] if argv[:1] in (("--env",), ("-e",)) else argv
+        if target and target[0] in HELP_FLAGS:
+            app.help_print(["run"])
+            return
+        command(*argv)
+
+    return run
+
+
 def build(manager: PackageManager) -> App:
     """Wire ``manager``'s commands into a cyclopts app (bound methods register directly).
 
@@ -66,7 +101,13 @@ def build(manager: PackageManager) -> App:
     every method shape that a loop over a tuple would produce (which is unassignable
     to `handled`'s `Callable[P, R]`).
     """
-    app = App(name=NAME, help="One manifest, many package managers.")
+    # cyclopts checks its auto `--version` flag eagerly against the whole argv, not just the
+    # tokens meant for the app itself, so a bare `--version` anywhere inside `run`'s or `x`'s
+    # `Parameter(allow_leading_hyphen=True)` passthrough (e.g. `chefe run python --version`)
+    # never reaches the wrapped command: it short-circuits to print chefe's own version instead
+    # of the tool's. Passthrough correctness matters far more than a `chefe --version` nicety,
+    # so the auto flag is off; chefe's own version is one `pip show chefe` away.
+    app = App(name=NAME, help="One manifest, many package managers.", version_flags=[])
     glob = App(name="global", help="Install the conda deps into the shared global pixi env.")
     app.command(glob)
     app.command(handled(manager, manager.init))
@@ -75,7 +116,9 @@ def build(manager: PackageManager) -> App:
     app.command(handled(manager, manager.activate))
     app.command(handled(manager, manager.update))
     app.command(handled(manager, manager.clean))
-    app.command(handled(manager, manager.run))
+    # Help flags get the same eager interception as the version check above, so `run`
+    # registers without any and forwards them itself; see `run_command`.
+    app.command(run_command(manager, app), help_flags=())
     # `x` is the short verb; `exec` is the alias for people who reach for the longer name.
     app.command(handled(manager, manager.x), name=("x", "exec"))
     app.command(handled(manager, manager.shell))

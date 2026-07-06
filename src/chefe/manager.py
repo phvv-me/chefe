@@ -243,6 +243,8 @@ class PackageManager:
         environment, e.g. `chefe run --env serving python ...`. The whole command line is
         taken as one leading-hyphen var-positional so the env flag and any hyphenated
         passthrough flags reach chefe verbatim instead of being parsed as chefe options.
+        Help flags ride along too. `chefe run atpx --help` prints atpx's help, and this
+        page appears only when no task name precedes the flag, as in `chefe run --help`.
         """
         env, rest = self.env_from(argv)
         with self.activated(env):
