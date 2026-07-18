@@ -1,3 +1,6 @@
+from collections.abc import Mapping
+from typing import cast
+
 import tomlkit
 from pydantic import Field
 
@@ -45,7 +48,6 @@ class PixiManifest(Model):
     """The compiled pixi manifest (`pixi.toml`) emitted into the generated env."""
 
     workspace: dict[str, Toml]
-    system_requirements: dict[str, str] = Field(default_factory=dict, alias="system-requirements")
     activation: dict[str, Toml] = {}
     dependencies: dict[str, Spec] = {}
     pypi_dependencies: dict[str, Spec] = Field(default_factory=dict, alias="pypi-dependencies")
@@ -57,7 +59,27 @@ class PixiManifest(Model):
 
     def to_toml(self) -> str:
         """Render to `pixi.toml` text (hyphenated table names via the field aliases)."""
-        return tomlkit.dumps(self.model_dump(by_alias=True, exclude_defaults=True))
+        body = self.model_dump(by_alias=True, exclude_defaults=True)
+        self.inline_platforms(body["workspace"])
+        return tomlkit.dumps(body)
+
+    @staticmethod
+    def inline_platforms(table: dict[str, Toml]) -> None:
+        """Render detailed platform descriptors as Pixi inline tables."""
+        platforms = table.get("platforms")
+        if not isinstance(platforms, list) or not any(
+            isinstance(platform, dict) for platform in platforms
+        ):
+            return
+        rendered = tomlkit.array()
+        for platform in platforms:
+            if isinstance(platform, str):
+                rendered.append(platform)
+                continue
+            descriptor = tomlkit.inline_table()
+            descriptor.update(cast(Mapping[str, Toml], platform))
+            rendered.append(descriptor)
+        table["platforms"] = rendered
 
     @staticmethod
     def task(spec: Task) -> Task:
@@ -80,6 +102,28 @@ class PixiManifest(Model):
             out["cwd"] = cwd if cwd.startswith("/") else f"../{cwd}" if cwd else ".."
         return out
 
+    @staticmethod
+    def platforms(names: list[str], system: dict[str, str], feature: str = "") -> list[Toml]:
+        """Attach virtual-package floors to Pixi's platform descriptors.
+
+        names: target platform names from the Chefe manifest.
+        system: virtual-package versions such as the CUDA driver floor.
+        feature: optional feature name used to create a distinct rich platform.
+        """
+        platforms: list[Toml] = []
+        if system:
+            platforms.extend(
+                {
+                    "name": f"{name}-{feature}" if feature else name,
+                    "platform": name,
+                    **system,
+                }
+                for name in names
+            )
+        else:
+            platforms.extend(names)
+        return platforms
+
     @classmethod
     def from_manifest(cls, m: Manifest) -> PixiManifest:
         """Build the pixi manifest from a validated :class:`Manifest`."""
@@ -96,7 +140,25 @@ class PixiManifest(Model):
             **({"env": variables} if variables else {}),
             **({"scripts": scripts} if scripts else {}),
         }
-        feature: dict[str, Toml] = {name: env.feature(indexes) for name, env in m.envs.items()}
+        workspace_platforms = cls.platforms(m.workspace.platforms, m.system, "system")
+        root_platforms = (
+            [f"{platform}-system" for platform in m.workspace.platforms]
+            if m.system
+            else m.workspace.platforms
+        )
+        feature: dict[str, Toml] = {}
+        for name, env in m.envs.items():
+            body = env.feature(indexes)
+            if env.system:
+                selected = env.platforms or m.workspace.platforms
+                if env.system == m.system:
+                    body["platforms"] = [f"{platform}-system" for platform in selected]
+                else:
+                    workspace_platforms.extend(cls.platforms(selected, env.system, name))
+                    body["platforms"] = [f"{platform}-{name}" for platform in selected]
+            elif env.platforms and m.system:
+                body["platforms"] = [f"{platform}-system" for platform in env.platforms]
+            feature[name] = body
         environments: dict[str, Toml] = {
             name: {
                 "features": [name],
@@ -104,20 +166,25 @@ class PixiManifest(Model):
             }
             for name, env in m.envs.items()
         }
+        default_features: list[str] = []
+        if m.system:
+            feature["chefe-system"] = {"platforms": root_platforms}
+            default_features.append("chefe-system")
         # `[dev.*]` deps become a `dev` feature added to the default environment, so
         # `chefe install` provisions dev tooling beside the runtime deps.
         if dev := m.dev.tables(indexes):
             feature["dev"] = dev
-            environments["default"] = {"features": ["dev"]}
+            default_features.append("dev")
+        if default_features:
+            environments["default"] = {"features": default_features}
         workspace: dict[str, Toml] = {
             "name": m.workspace.name,
             "version": m.workspace.version,
             "channels": m.workspace.channels,
-            "platforms": m.workspace.platforms,
+            "platforms": workspace_platforms,
         }
         payload: dict[str, Toml] = {
             "workspace": workspace,
-            "system-requirements": m.system,
             "activation": activation,
             **m.tables(indexes),
             "pypi-options": python.options(),

@@ -9,7 +9,7 @@ chefe mirrors pixi's verbs over the unified manifest. Most commands take an opti
 | `chefe install [env]` | sync, then provision every language/toolchain for `env` |
 | `chefe activate [env]` | write `.chefe/activate.sh` for this host (HPC modules + pixi env) |
 | `chefe update [env]` | re-solve to the newest allowed versions across languages/toolchains |
-| `chefe upgrade [pkg…]` | bump the manifest's conda + Python constraints to the latest, then sync |
+| `chefe upgrade [pkg…]` | update Pixi, Node, and Cargo within current bounds, or bump named conda and Python constraints |
 | `chefe add <pkg…>` | add packages to the manifest, then re-sync |
 | `chefe remove <pkg…>` | remove packages wherever they're declared, then re-sync |
 | `chefe tree [env]` | declared vs installed, each dep checked in **its own** language/toolchain |

@@ -1,0 +1,15 @@
+# chefe
+
+> One manifest for every package manager.
+
+
+## Usage
+
+- [chefe](https://phvv.me/chefe/index.md)
+- [How it works](https://phvv.me/chefe/how-it-works/index.md)
+- [Commands](https://phvv.me/chefe/commands/index.md)
+- [Examples](https://phvv.me/chefe/examples/index.md)
+
+## Reference
+
+- [The manifest](https://phvv.me/chefe/manifest/index.md)

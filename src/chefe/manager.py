@@ -9,6 +9,7 @@ from typing import Annotated
 
 import tomlkit
 from cyclopts import Parameter
+from packaging.utils import canonicalize_name
 from plumbum import local
 from plumbum.commands.processes import CommandNotFound
 from pydantic import ValidationError
@@ -214,11 +215,16 @@ class PackageManager:
 
     def update(self, env: str = "default") -> None:
         """Re-solve to the newest allowed versions across ecosystems."""
+        self._update_all(env)
+        self.console.print(markup(t"[green]updated[/green] env [bold]{env}[/bold]"))
+
+    def _update_all(self, env: str) -> None:
+        """Refresh Pixi, Node, and Cargo packages within one environment's constraints."""
         self.sync(env)
         self.pixi("update", "-e", env)
         with self.activated(env):
             self.node(self.load(), env)("update")
-        self.console.print(markup(t"[green]updated[/green] env [bold]{env}[/bold]"))
+        self.cargo.update(env, self.rust_deps(env))
 
     def rust_deps(self, env: str) -> dict[str, Spec]:
         """Cargo-installable crate specs declared by `[rust]` for ``env``."""
@@ -319,7 +325,7 @@ class PackageManager:
         env: str = "",
         spec: str = "*",
     ) -> None:
-        """Add packages to the manifest, then sync; conda + Python resolve through pixi.
+        """Add packages to the manifest, then sync and provision so they run right away.
 
         `language`: `conda`, `python`, or any runtime declared in `[deps]`.
         """
@@ -336,8 +342,24 @@ class PackageManager:
             document = Document(self.manifest)
             document.add(language, env, packages, spec)
             document.save()
-            self.sync()
+            target = env or "default"
+            self.sync(target)
+            self.provision(language, target)
         self.console.print(markup(t"[green]added[/green] {', '.join(packages)}"))
+
+    def provision(self, language: str, env: str) -> None:
+        """Install a freshly added `language` dep into ``env``, so `chefe run` finds it at once.
+
+        `pixi add` installs what it adds, and this is the counterpart for the toolchains chefe
+        drives itself: without it, an added nodejs/rust dep sat in the manifest until the next
+        full `chefe install` and `chefe run <bin>` failed with command-not-found. A toolchain
+        with no backend of its own still provisions on the next `chefe install`.
+        """
+        if language == "nodejs":
+            with self.activated(env):
+                self.node(self.load(), env)("install")
+        if language == "rust":
+            self.cargo.sync(env, self.rust_deps(env))
 
     @staticmethod
     def package_specs(packages: tuple[str, ...], spec: str) -> tuple[str, ...]:
@@ -366,13 +388,21 @@ class PackageManager:
             )
 
     def upgrade(self, *packages: str, env: str = "") -> None:
-        """Bump conda + Python constraints to the latest allowed, then sync in."""
-        self.sync()
+        """Update safely within constraints, or loosen constraints for named packages."""
+        target = env or "default"
+        if not packages:
+            self._update_all(target)
+            self.console.print(
+                markup(
+                    t"[green]upgraded[/green] every ecosystem in env "
+                    t"[bold]{target}[/bold] within constraints"
+                )
+            )
+            return
+        self.sync(target)
         self.pixi("upgrade", *packages, feature=env)
         self.pull()
-        self.console.print(
-            markup(t"[green]upgraded[/green] {', '.join(packages) or 'all conda + Python deps'}")
-        )
+        self.console.print(markup(t"[green]upgraded[/green] {', '.join(packages)}"))
 
     def remove(self, *packages: str) -> None:
         """Remove packages from the manifest wherever declared, then re-sync."""
@@ -401,9 +431,13 @@ class PackageManager:
             "rust": {n: i.shown_version for n, i in self.cargo.installed(env).items()},
         }
         for name, inst in self.pixi.installed(env).items():
-            by_source.setdefault(KIND_SOURCES.get(inst.kind, inst.kind), {})[name] = (
-                inst.shown_version
-            )
+            source = KIND_SOURCES.get(inst.kind, inst.kind)
+            installed_name = canonicalize_name(name) if source == "python" else name
+            by_source.setdefault(source, {})[installed_name] = inst.shown_version
+            if inst.kind == "conda":
+                by_source.setdefault("python", {}).setdefault(
+                    canonicalize_name(name), inst.shown_version
+                )
         return by_source
 
     def tree(

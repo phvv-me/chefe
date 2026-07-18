@@ -1,3 +1,5 @@
+from tomllib import loads
+
 import pytest
 from syrupy.assertion import SnapshotAssertion
 
@@ -96,6 +98,60 @@ def manifest(request: pytest.FixtureRequest) -> Manifest:
 def test_pixi_toml_snapshot(manifest: Manifest, snapshot: SnapshotAssertion) -> None:
     """The compiled `pixi.toml` text is pinned for representative manifests."""
     assert PixiManifest.from_manifest(manifest).to_toml() == snapshot
+
+
+def test_feature_reuses_a_matching_rich_workspace_platform() -> None:
+    """A feature with the root virtual packages names the existing platform once."""
+    manifest = Manifest.from_toml(
+        """
+        [workspace]
+        name = "gpu"
+        platforms = ["linux-64"]
+
+        [system]
+        cuda = "13.0"
+
+        [envs.serving]
+        platforms = ["linux-64"]
+
+        [envs.serving.system]
+        cuda = "13.0"
+
+        [envs.analysis]
+        platforms = ["linux-64"]
+        """
+    )
+    pixi = PixiManifest.from_manifest(manifest)
+    assert pixi.workspace["platforms"] == [
+        {"name": "linux-64-system", "platform": "linux-64", "cuda": "13.0"}
+    ]
+    assert pixi.feature["serving"]["platforms"] == ["linux-64-system"]
+    assert pixi.feature["analysis"]["platforms"] == ["linux-64-system"]
+    assert pixi.feature["chefe-system"]["platforms"] == ["linux-64-system"]
+
+
+def test_environment_only_virtual_packages_keep_plain_workspace_platforms() -> None:
+    """An environment variant can coexist with ordinary workspace platforms."""
+    manifest = Manifest.from_toml(
+        """
+        [workspace]
+        name = "gpu"
+        platforms = ["osx-arm64", "linux-64"]
+
+        [envs.serving]
+        no-default = true
+        platforms = ["linux-64"]
+
+        [envs.serving.system]
+        cuda = "13.0"
+        """
+    )
+    body = loads(PixiManifest.from_manifest(manifest).to_toml())
+    assert body["workspace"]["platforms"] == [
+        "osx-arm64",
+        "linux-64",
+        {"name": "linux-64-serving", "platform": "linux-64", "cuda": "13.0"},
+    ]
 
 
 def test_package_json_snapshot(manifest: Manifest, snapshot: SnapshotAssertion) -> None:

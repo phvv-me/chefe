@@ -122,10 +122,10 @@ def test_clean_removes_generated_env(workspace: Workspace) -> None:
     assert not manager.out.exists()
 
 
-def test_add_toolchain_dep_edits_manifest_without_subprocess(
+def test_add_toolchain_dep_edits_manifest_and_provisions(
     workspace: Workspace, recording_backends: list[tuple[str, ...]]
 ) -> None:
-    """A non-pixi language writes `[<language>.deps]` after its runtime is declared."""
+    """A non-pixi language writes `[<language>.deps]`, then installs the crate right away."""
     manager = workspace(
         """
         [deps]
@@ -138,7 +138,25 @@ def test_add_toolchain_dep_edits_manifest_without_subprocess(
     assert "[rust.deps]" in text
     assert 'rust = "*"' in text
     assert manager.load().toolchains()["rust"].deps["ripgrep"].version == ">=14"
-    assert ("Pixi", "add") not in [(c[0], c[1]) for c in recording_backends]
+    verbs = [(c[0], c[1]) for c in recording_backends]
+    assert ("Pixi", "add") not in verbs
+    assert ("Cargo", "sync") in verbs
+
+
+def test_add_nodejs_dep_is_runnable_immediately(
+    workspace: Workspace, recording_backends: list[tuple[str, ...]]
+) -> None:
+    """`chefe add -l nodejs` runs the node install itself, so `chefe run <bin>` works without
+    a separate `chefe install` (the manifest-only add left the package uninstalled)."""
+    manager = workspace(
+        """
+        [deps]
+        nodejs = "*"
+        """
+    )
+    manager.add("@openai/codex", language="nodejs")
+    assert manager.load().toolchains()["nodejs"].deps["@openai/codex"].version == "*"
+    assert ("Node", "install") in [(c[0], c[1]) for c in recording_backends]
 
 
 @pytest.mark.parametrize(
@@ -450,6 +468,39 @@ def test_update_and_upgrade_and_shell_and_run(
     assert {"update", "upgrade", "shell", "run"} <= {c[1] for c in recording_backends}
 
 
+@pytest.mark.parametrize(("env", "target"), [("", "default"), ("research", "research")])
+def test_upgrade_without_packages_refreshes_every_ecosystem_within_constraints(
+    workspace: Workspace,
+    recording_backends: list[tuple[str, ...]],
+    env: str,
+    target: str,
+) -> None:
+    """A broad upgrade refreshes runtimes, Python, Node, and Cargo without loosening bounds."""
+    manager = workspace(
+        """
+        [deps]
+        python = "*"
+        nodejs = "*"
+        rust = "*"
+
+        [nodejs.deps]
+        prettier = "<4"
+
+        [rust.deps]
+        ripgrep = "<15"
+        """
+    )
+
+    manager.upgrade(env=env)
+
+    assert ("Pixi", "update", "-e", target) in recording_backends
+    assert ("Node", "update") in recording_backends
+    assert any(
+        call[:2] == ("Cargo", "install") and "ripgrep" in call for call in recording_backends
+    )
+    assert not any(call[1] == "upgrade" for call in recording_backends)
+
+
 @pytest.mark.parametrize("code", [0, 3, 5])
 @pytest.mark.parametrize("verb", ["run", "shell"])
 def test_passthrough_verbs_exit_with_the_inner_code(
@@ -544,6 +595,20 @@ def test_run_unknown_env_fails_fast(workspace: Workspace) -> None:
     manager = workspace("[deps]\npython = '*'\n")
     with pytest.raises(ChefeError, match="No environment `ghost` is declared"):
         manager.run("--env", "ghost", "python")
+
+
+@pytest.mark.parametrize(
+    "argv",
+    [(), ("--env", "gpu")],
+    ids=["missing-command", "environment-without-command"],
+)
+def test_run_requires_a_command_after_optional_environment(
+    workspace: Workspace, argv: tuple[str, ...]
+) -> None:
+    """A missing executable fails before activation with one concise user error."""
+    manager = workspace("[deps]\npython = '*'\n")
+    with pytest.raises(ChefeError, match="needs"):
+        manager.run(*argv)
 
 
 def test_activation_recompiles_an_edited_manifest(
@@ -707,6 +772,36 @@ def test_tree_renders_a_null_version_path_dep_without_crashing(
     )
     manager.tree("default")
     assert "(path)" in capsys.readouterr().out
+
+
+def test_tree_normalizes_python_names_and_accepts_conda_resolution(
+    workspace: Workspace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Python declarations match PEP 503 names and packages Pixi resolved from conda."""
+    monkeypatch.setattr(
+        Pixi,
+        "installed",
+        lambda self, env: {
+            "types_networkx": Installed(version="3.6.1", kind="pypi", explicit=True),
+            "httpx": Installed(version="0.28.1", kind="conda", explicit=True),
+        },
+    )
+    monkeypatch.setattr(Node, "installed", lambda self, env: {})
+    monkeypatch.setattr(Cargo, "installed", lambda self, env: {})
+    manager = workspace(
+        """
+        [deps]
+        python = "*"
+
+        [python.deps]
+        types-networkx = ">=3.6"
+        httpx = ">=0.28"
+        """
+    )
+
+    installed = manager.installed_by_source("default")
+
+    assert installed["python"] == {"types-networkx": "3.6.1", "httpx": "0.28.1"}
 
 
 @pytest.mark.parametrize(

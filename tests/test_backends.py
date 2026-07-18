@@ -180,6 +180,35 @@ def test_cargo_sync_reconciles_declared_against_installed(
     assert not any("kept" in body for body in bodies)  # satisfied, skipped
 
 
+def test_cargo_update_refreshes_even_satisfied_crates(
+    mocker: MockerFixture, tmp_path: Path
+) -> None:
+    """update forces retained crates through Cargo so compatible releases are not skipped."""
+    pixi = Pixi(tmp_path)
+    cargo = Cargo(tmp_path, pixi)
+    mocker.patch.object(
+        Cargo,
+        "installed",
+        return_value={"ripgrep": Installed(version="14.0.0", kind="cargo")},
+        autospec=True,
+    )
+    calls: list[tuple[str, ...]] = []
+    mocker.patch.object(
+        Pixi,
+        "__call__",
+        side_effect=lambda self, verb, *args, **flags: calls.append(
+            (verb, *Tool.flags(**flags), *args)
+        ),
+        autospec=True,
+    )
+
+    cargo.update("default", {"ripgrep": Spec.model_validate("<15")})
+
+    assert "--force" in calls[0]
+    assert "--version" in calls[0]
+    assert "<15" in calls[0]
+
+
 @pytest.mark.parametrize(
     ("spec", "expected"),
     [

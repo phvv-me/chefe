@@ -42,16 +42,36 @@ class Cargo(Tool):
 
     def sync(self, env: str, declared: dict[str, Spec]) -> None:
         """Make ``env``'s crates match ``declared``: install missing or drifted, drop removed."""
+        self._reconcile(env, declared)
+
+    def update(self, env: str, declared: dict[str, Spec]) -> None:
+        """Reinstall every declared crate at the newest version allowed by its constraint."""
+        self._reconcile(env, declared, force=True)
+
+    def _reconcile(self, env: str, declared: dict[str, Spec], force: bool = False) -> None:
+        """Reconcile installed crates, optionally refreshing every retained declaration."""
         at = str(self.root(env))
         have = self.installed(env)
         for name in have.keys() - declared.keys():
             self("uninstall", "--root", at, name, environment=env)
         for name, spec in declared.items():
             current = have.get(name)
-            if current is not None and satisfied(spec.version or "*", current.version):
+            if (
+                not force
+                and current is not None
+                and satisfied(spec.version or "*", current.version)
+            ):
                 continue
-            force = ("--force",) if current is not None else ()
-            self("install", "--root", at, *self.install_args(spec), *force, name, environment=env)
+            reinstall = ("--force",) if current is not None else ()
+            self(
+                "install",
+                "--root",
+                at,
+                *self.install_args(spec),
+                *reinstall,
+                name,
+                environment=env,
+            )
 
     @staticmethod
     def install_args(spec: Spec) -> tuple[str, ...]:

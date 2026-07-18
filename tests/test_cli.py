@@ -1,9 +1,12 @@
 import functools
 import json
+import runpy
+import warnings
 from collections.abc import Callable
 from pathlib import Path
 
 import pytest
+from cyclopts import App
 from pytest_subprocess import FakeProcess
 
 from chefe.backends import Pixi
@@ -82,6 +85,18 @@ def test_cli_prints_chefe_errors(tmp_path: Path, capsys: pytest.CaptureFixture[s
         app(["add", "ripgrep", "-l", "rust"])
     assert exit_info.value.code == 1
     assert "Language `rust` is not declared in [deps]" in capsys.readouterr().out
+
+
+def test_module_entrypoint_invokes_the_app(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Running the CLI module invokes the application assembled at module scope."""
+    calls: list[tuple[str, ...]] = []
+    monkeypatch.setattr(App, "__call__", lambda self: calls.append(self.name))
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", RuntimeWarning)
+        runpy.run_module("chefe.cli", run_name="__main__")
+
+    assert calls == [("chefe",)]
 
 
 def existing_global_env(fp: FakeProcess, pixi: str, name: str) -> None:

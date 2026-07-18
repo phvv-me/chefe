@@ -8,7 +8,7 @@ chefe refleja los verbos de pixi sobre el manifest unificado. La mayoría de los
 | `chefe sync` | compila `chefe.toml` en `.chefe/{pixi.toml, package.json, …}` |
 | `chefe install [env]` | sync y luego aprovisiona cada ecosistema para `env` |
 | `chefe update [env]` | vuelve a resolver a las versiones más nuevas permitidas en todos los lenguajes/toolchains |
-| `chefe upgrade [pkg…]` | sube las restricciones de conda + Python del manifest a lo más reciente, luego sync |
+| `chefe upgrade [pkg…]` | actualiza Pixi, Node y Cargo dentro de los límites actuales o amplía los paquetes nombrados |
 | `chefe add <pkg…>` | agrega paquetes al manifest, luego vuelve a sincronizar |
 | `chefe remove <pkg…>` | elimina paquetes donde sea que estén declarados, luego vuelve a sincronizar |
 | `chefe tree [env]` | declarado vs instalado, cada dep verificada en **su propio** ecosistema |

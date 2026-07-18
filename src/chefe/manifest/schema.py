@@ -171,16 +171,14 @@ class Env(Scope):
     on: dict[str, Scope] = {}
     no_default: bool = Field(default=False, alias="no-default")
     platforms: list[str] = []  # restrict this env's feature to these platforms
-    system: dict[str, str] = {}  # per-env system-requirements (virtual-package floor)
+    system: dict[str, str] = {}  # per-env virtual-package floor
 
     def feature(self, indexes: dict[str, str]) -> dict[str, Toml]:
-        """This env as a pixi feature: its registries, platform + system limits, and overlays."""
+        """This env as a Pixi feature with registries, platform limits, and overlays."""
         body: dict[str, Toml] = {}
         body.update(self.tables(indexes))
         if self.platforms:
             body["platforms"] = self.platforms
-        if self.system:
-            body["system-requirements"] = self.system
         target: dict[str, Toml] = {}
         for plat, scope in self.on.items():
             if tables := scope.tables(indexes):
@@ -227,7 +225,7 @@ class Manifest(Scope):
     """The whole manifest: a :class:`Scope` plus identity, conditions, env, tasks."""
 
     workspace: Header
-    system: dict[str, str] = {}  # [system]  → pixi [system-requirements]
+    system: dict[str, str] = {}  # [system] → virtual packages on compiled platforms
     on: dict[str, Scope] = {}  # [on.<platform>]  → pixi [target.*]
     # [dev.*] → a pixi `dev` feature in the default environment
     dev: Scope = Scope()

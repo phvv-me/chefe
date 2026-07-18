@@ -16,6 +16,16 @@ from .schema import Manifest
 # `remove` can tell `[nodejs]` apart from structural tables like `[workspace]`.
 TOOLCHAIN_MARKERS = ("deps", "dev", "manager", "app", "package", "bin_dirs", "indexes")
 
+# Manifest tables that are structure, never runtime-keyed toolchains, so removing a package
+# that happens to share their name (`chefe remove dev`) must not delete them.
+STRUCTURAL_TABLES = frozenset(
+    {"workspace", "deps", "dev", "envs", "on", "env", "tasks", "activation", "modules", "system"}
+)
+
+# Namespace tables whose direct children are scopes (an env, a platform overlay), never
+# toolchain tables, so a removed package sharing an env or platform name leaves them intact.
+SCOPE_NAMESPACES = ("envs", "on")
+
 
 class Document:
     """Editable tomlkit view of the manifest (comments kept); the write twin of `Manifest`."""
@@ -90,17 +100,29 @@ class Document:
         return removed
 
     def remove_source_tables(
-        self, node: AbstractTable | TOMLDocument, packages: tuple[str, ...]
+        self, node: AbstractTable | TOMLDocument, packages: tuple[str, ...], scoped: bool = True
     ) -> None:
-        """Remove runtime-keyed source tables when their runtime package is removed."""
+        """Remove runtime-keyed source tables when their runtime package is removed.
+
+        A toolchain table only ever sits directly inside a scope (the root, `[dev]`, an env,
+        a platform overlay). Structural tables and the children of the `envs`/`on` namespaces
+        (envs and platforms themselves) merely share the shape, so a removed package that
+        happens to carry their name (`chefe remove serving` against `[envs.serving]`) must
+        recurse past them, never delete them.
+        """
         targets = {self.normalize(package) for package in packages}
         for key, value in tuple(node.items()):
             if not isinstance(value, AbstractTable):
                 continue
-            if self.normalize(key) in targets and any(m in value for m in TOOLCHAIN_MARKERS):
+            toolchain = scoped and self.normalize(key) not in STRUCTURAL_TABLES
+            if (
+                toolchain
+                and self.normalize(key) in targets
+                and any(m in value for m in TOOLCHAIN_MARKERS)
+            ):
                 node.pop(key, None)
             else:
-                self.remove_source_tables(value, packages)
+                self.remove_source_tables(value, packages, scoped=key not in SCOPE_NAMESPACES)
 
     def pull(self, pixi_doc: Mapping[str, Toml]) -> None:
         """Fold pixi's resolved conda + Python deps from a `pixi.toml` dict back into the manifest.

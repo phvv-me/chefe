@@ -4,6 +4,32 @@ All notable changes to chefe are documented here.
 
 The format follows Keep a Changelog, and releases are cut from the version in `pyproject.toml`.
 
+## 0.0.24
+
+### Fixed
+
+- Bare `chefe upgrade` now updates Pixi-managed runtimes and Python packages, Node packages, and
+  Cargo-installed tools in the selected environment within declared compatibility bounds. Pixi's
+  all-package upgrade mode loosened intentional caps before solving, so a protected dependency
+  such as `numpy <2.5` could be raised into a known `numba` conflict. Naming packages still
+  explicitly raises those packages' manifest constraints.
+- Generated Pixi manifests no longer use the deprecated `[system-requirements]` tables. Root
+  virtual packages now live on named rich workspace platforms, matching environments reuse those
+  names, and an environment with a different floor gets its own named platform variant. This
+  removes repeated Pixi 0.72 warnings without losing per-environment CUDA constraints.
+- `chefe add <pkg> -l nodejs` (and `-l rust`) now installs what it adds. The non-pixi path only
+  wrote the manifest and recompiled, so the added package sat undeclared in the env and
+  `chefe run <bin>` failed with command-not-found until a full `chefe install`. The add now
+  provisions its toolchain right away (a node install, a cargo sync), matching how `pixi add`
+  already installed conda and Python deps.
+- `chefe remove <name>` no longer deletes a structural table that happens to share the removed
+  package's name. Removing a package named like an environment wiped the whole `[envs.<name>]`
+  table, and removing one named `dev` wiped `[dev]`. Structural tables and the children of the
+  `envs`/`on` namespaces are now recognized as scopes, never runtime-keyed toolchain tables.
+- `satisfied` accepts a pinless installed version (`None`, an editable or path install) and
+  treats it as satisfied, instead of relying on every caller to narrow it first. This fixes the
+  one strict-typing error in the cargo sync path.
+
 ## 0.0.23
 
 ### Fixed

@@ -249,8 +249,50 @@ def test_save_refuses_an_invalid_manifest() -> None:
             "leftpad",
             None,
         ),
+        # An env sharing a removed package's name is a scope, not a toolchain table: the dep
+        # goes, the `[envs.serving]` table stays.
+        (
+            '[deps]\npython = "*"\n\n[envs.serving.deps]\nserving = "*"\n',
+            ["serving"],
+            ["envs", "serving"],
+            "serving",
+            "envs",
+        ),
+        # `[dev]` is structural: removing a package named `dev` never deletes the dev tooling.
+        (
+            '[deps]\ndev = "*"\n\n[dev.deps]\nruff = "*"\n',
+            ["dev"],
+            ["dev", "deps"],
+            "dev",
+            "dev",
+        ),
+        # A platform overlay sharing a removed package's name survives the same way.
+        (
+            '[deps]\npython = "*"\n\n[on.linux.deps]\nlinux = "*"\n',
+            ["linux"],
+            ["on", "linux"],
+            "linux",
+            "on",
+        ),
+        # An env-scoped toolchain table is still dropped with its runtime.
+        (
+            '[deps]\npython = "*"\n\n[envs.web.deps]\nnodejs = "*"\n\n'
+            '[envs.web.nodejs.deps]\nprettier = "*"\n',
+            ["nodejs"],
+            ["envs", "web"],
+            "nodejs",
+            "envs",
+        ),
     ],
-    ids=["runtime-table", "table-without-direct-deps", "inline-deps-table"],
+    ids=[
+        "runtime-table",
+        "table-without-direct-deps",
+        "inline-deps-table",
+        "env-name-collision",
+        "dev-name-collision",
+        "platform-name-collision",
+        "env-scoped-runtime-table",
+    ],
 )
 def test_remove_drops_deps_and_runtime_tables(
     body: str,
@@ -287,11 +329,13 @@ def test_normalize_is_idempotent_and_insensitive(name: str, noise: str) -> None:
 
 
 @given(version=st.sampled_from(["1.0.0", "2.5", "0.0.1"]))
-def test_satisfied_wildcard_self_and_unparseable(version: str) -> None:
-    """`*`/`""` accept anything, a version satisfies its own `==`, and an unparseable spec or
-    version is treated as satisfied (display-only; pixi is the real gate)."""
+def test_satisfied_wildcard_self_and_unparsable(version: str) -> None:
+    """`*`/`""` accept anything, a version satisfies its own `==`, and an unparsable spec,
+    version, or a pinless (`None`) install is treated as satisfied (display-only; pixi is
+    the real gate)."""
     assert satisfied("*", version)
     assert satisfied("", version)
     assert satisfied(f"=={version}", version)
     assert satisfied("not-a-spec", version)
     assert satisfied(">=1.0", "not-a-version")
+    assert satisfied(">=1.0", None)

@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="120" height="104" viewBox="0 0 120 104" fill="none"
+     stroke="#eab308" stroke-linecap="round" stroke-linejoin="round">
+  <title>chefe, the cloche at the pass</title>
+  <!-- tweak the dome's ry (the 36 in `a34 36`) to flatten or raise the lid -->
+  <g transform="translate(0 0)" stroke-width="4">
+    <circle cx="60" cy="30" r="4.5"/>
+    <path d="M60 36 v6"/>
+    <path d="M26 80 a34 36 0 0 1 68 0"/>
+    <!-- sheen: concentric inner arc, parallel to the dome's upper-left shell -->
+    <path d="M33 72 a28 30 0 0 1 14 -20" stroke-width="3" opacity="0.5"/>
+    <path d="M22 80 h76 a9 9 0 0 1 -9 9 H31 a9 9 0 0 1 -9 -9 Z"/>
+  </g>
+</svg>

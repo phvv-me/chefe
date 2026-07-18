@@ -1,5 +1,6 @@
 from collections import Counter
 
+from packaging.utils import canonicalize_name
 from rich.console import Console
 from rich.table import Table
 
@@ -36,7 +37,8 @@ class TreeReport:
             report.add_column(column)
         tally: Counter[str] = Counter()
         for name, dep in sorted(declared.items()):
-            installed = by_source.get(dep.source, {}).get(name)
+            installed_name = canonicalize_name(name) if dep.source == "python" else name
+            installed = by_source.get(dep.source, {}).get(installed_name)
             mark, shown, bucket = self.row_status(dep.spec, installed)
             tally[bucket] += 1
             report.add_row(name, dep.source, dep.spec, shown, mark)
@@ -76,7 +78,8 @@ class TreeReport:
         }
         actions: list[tuple[str, str]] = []
         for name, dep in sorted(declared.items()):
-            installed = by_source.get(dep.source, {}).get(name)
+            installed_name = canonicalize_name(name) if dep.source == "python" else name
+            installed = by_source.get(dep.source, {}).get(installed_name)
             if installed is None:
                 actions.append(("[green]+ install[/green]", f"{name} {dep.spec}".rstrip()))
             elif not satisfied(dep.spec, installed):
