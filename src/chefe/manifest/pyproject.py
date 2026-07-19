@@ -1,6 +1,7 @@
 import tomllib
 from collections.abc import Iterable, Mapping
 from pathlib import Path
+from typing import cast
 
 from packaging.requirements import Requirement
 from packaging.utils import canonicalize_name
@@ -31,8 +32,7 @@ def find_manifest(directory: Path) -> Path | None:
 
 def tool_table(pyproject: Path) -> Mapping[str, Toml]:
     """The `[tool]` table of ``pyproject``, or an empty mapping when it declares none."""
-    tool = tomllib.loads(pyproject.read_text()).get("tool", {})
-    return tool if isinstance(tool, Mapping) else {}
+    return _table(tomllib.loads(pyproject.read_text()).get("tool"))
 
 
 class Sources:
@@ -57,8 +57,8 @@ class Sources:
         version = str(requirement.specifier) or None
         extras = sorted(requirement.extras)
         source = self.table.get(canonicalize_name(requirement.name))
-        provider = str(source.get("provider", "pypi")) if source else "pypi"
-        if provider == "conda":
+        provider = str(source.get("provider", "pypi")) if source is not None else "pypi"
+        if source is not None and provider == "conda":
             return True, str(source.get("package", requirement.name)), version or "*"
         if source is not None and provider != "pypi":
             keys = {key: value for key, value in source.items() if key != "provider"}
@@ -76,16 +76,20 @@ def manifest_body(text: str) -> dict[str, Toml]:
     508 form; and the rest of `[tool.chefe]` (channels, tasks, env, overlays) passes through.
     """
     data = tomllib.loads(text)
-    project = data.get("project", {})
-    chefe = dict(data.get("tool", {}).get(NAME, {}))
-    sources = Sources(chefe.pop("sources", {}))
-    conda_only = dict(chefe.pop("conda", {}))
+    project = _table(data.get("project"))
+    tool = _table(data.get("tool"))
+    chefe = dict(_table(tool.get(NAME)))
+    sources = Sources(_table(chefe.pop("sources", {})))
+    conda_only = dict(_table(chefe.pop("conda", {})))
     body: dict[str, Toml] = chefe
     name_workspace(body, project)
-    runtime_conda, runtime_pypi = route(project.get("dependencies", []), sources)
-    self_install(runtime_pypi, project.get("name"))
+    dependencies = cast(Iterable[str], project.get("dependencies", []))
+    runtime_conda, runtime_pypi = route(dependencies, sources)
+    project_name = project.get("name")
+    self_install(runtime_pypi, project_name if isinstance(project_name, str) else None)
     fill_scope(body, {**conda_only, **runtime_conda}, runtime_pypi)
-    dev_conda, dev_pypi = route(group(data.get("dependency-groups", {}), "dev"), sources)
+    groups = _table(data.get("dependency-groups"))
+    dev_conda, dev_pypi = route(group(groups, "dev"), sources)
     fill_dev(body, dev_conda, dev_pypi)
     return body
 
@@ -127,15 +131,15 @@ def self_install(pypi: dict[str, Toml], name: str | None) -> None:
 def fill_scope(body: dict[str, Toml], conda: Mapping[str, Toml], pypi: Mapping[str, Toml]) -> None:
     """Write the root conda `[deps]` and Python deps, each only when it carries something."""
     if conda:
-        body["deps"] = {**dict(body.get("deps", {})), **conda}
+        body["deps"] = {**dict(_table(body.get("deps"))), **conda}
     fill_python(body, pypi)
 
 
 def fill_dev(body: dict[str, Toml], conda: Mapping[str, Toml], pypi: Mapping[str, Toml]) -> None:
     """Write the `[dev]` feature's conda and Python deps, so dev tools install beside runtime."""
-    dev = dict(body.get("dev", {}))
+    dev = dict(_table(body.get("dev")))
     if conda:
-        dev["deps"] = {**dict(dev.get("deps", {})), **conda}
+        dev["deps"] = {**dict(_table(dev.get("deps"))), **conda}
     fill_python(dev, pypi)
     if dev:
         body["dev"] = dev
@@ -149,15 +153,17 @@ def fill_python(scope: dict[str, Toml], pypi: Mapping[str, Toml]) -> None:
     """
     if not pypi:
         return
-    python = dict(scope.get("python", {}))
-    python["deps"] = {**dict(python.get("deps", {})), **pypi}
+    python = dict(_table(scope.get("python")))
+    python["deps"] = {**dict(_table(python.get("deps"))), **pypi}
     scope["python"] = python
 
 
 def name_workspace(body: dict[str, Toml], project: Mapping[str, Toml]) -> None:
     """Fill the workspace identity from `[project]`, keeping any `[tool.chefe.workspace]` value."""
-    workspace = dict(body.get("workspace", {}))
-    workspace.setdefault("name", project.get("name"))
+    workspace = dict(_table(body.get("workspace")))
+    name = project.get("name")
+    if name is not None:
+        workspace.setdefault("name", name)
     if "version" in project:
         workspace.setdefault("version", project["version"])
     body["workspace"] = workspace
@@ -168,6 +174,11 @@ def pypi_spec(version: str | None, extras: list[str]) -> Toml:
     if extras:
         return {**({"version": version} if version else {}), "extras": extras}
     return version or "*"
+
+
+def _table(value: Toml | None) -> Mapping[str, Toml]:
+    """Return ``value`` when it is a TOML table, otherwise an empty mapping."""
+    return value if isinstance(value, Mapping) else {}
 
 
 def _tables(table: Mapping[str, Toml]) -> Iterable[tuple[str, Mapping[str, Toml]]]:
