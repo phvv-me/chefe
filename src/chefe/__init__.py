@@ -7,6 +7,10 @@ NAME = __name__
 MANIFEST = f"{NAME}.toml"
 ENV_DIR = f".{NAME}"
 
+# A Python package may embed the manifest as a `[tool.chefe]` table here instead of a
+# standalone `chefe.toml`, the same way ruff, pytest, and hatch read their own `[tool.*]`.
+PYPROJECT = "pyproject.toml"
+
 # Pixi resolves conda directly; Python packages use Pixi's private Python adapter.
 PIXI_RESOLVED = ("conda", "python")
 

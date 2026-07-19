@@ -4,6 +4,26 @@ All notable changes to chefe are documented here.
 
 The format follows Keep a Changelog, and releases are cut from the version in `pyproject.toml`.
 
+## 0.0.25
+
+### Added
+
+- chefe now reads its manifest from a `[tool.chefe]` table inside `pyproject.toml` when one is
+  present, the way ruff, pytest, and hatch read their own `[tool.*]` tables, so a Python package
+  keeps a single file. A `pyproject.toml` without `[tool.chefe]` (for example a monorepo root that
+  drives chefe from a sibling `chefe.toml`) falls through to the standalone file unchanged.
+- A `pyproject.toml` manifest inherits its dependencies from the PEP-standard tables rather than
+  restating them: `[project.dependencies]` (PEP 508) becomes the runtime Python deps and
+  `[dependency-groups]` `dev` (PEP 735, includes followed) becomes the dev-env deps. The package
+  installs itself editable so it imports and its own deps resolve, like `pip install -e .`.
+- `[tool.chefe.sources]` routes a named distribution to a provider without repeating its version:
+  `conda` (with an optional `package` rename), `git`, or `path`. `[tool.chefe.conda]` carries
+  conda-only native deps that have no PEP 508 form (the interpreter, system libs). The rest of
+  `[tool.chefe]` (channels, tasks, env, overlays) passes through as before.
+- The manifest writers (`add`/`remove`/`upgrade`) refuse to edit an embedded `[tool.chefe]`,
+  pointing at the file to edit by hand, since a runtime dep belongs in `[project.dependencies]` and
+  a tool in `[dependency-groups]`. Reading, `install`, and `run` work against either manifest.
+
 ## 0.0.24
 
 ### Fixed

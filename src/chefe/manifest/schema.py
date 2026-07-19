@@ -6,10 +6,11 @@ from typing import Self
 
 from pydantic import ConfigDict, Field, model_serializer, model_validator
 
-from .. import NAME
+from .. import NAME, PYPROJECT
 from ..base import FlexModel, Model, Toml
 from ..state import Declared
 from ..utils import platform_scopes
+from .pyproject import manifest_body
 
 # A pixi/mise task: a bare command string, or a table (run/cmd, depends, cwd, ...).
 Task = str | dict[str, Toml]
@@ -278,13 +279,19 @@ class Manifest(Scope):
 
     @classmethod
     def load(cls, path: Path) -> Manifest:
-        """Read and validate the manifest file into a typed manifest."""
-        return cls.from_toml(path.read_text())
+        """Read and validate a `chefe.toml`, or a `pyproject.toml` carrying `[tool.chefe]`."""
+        text = path.read_text()
+        return cls.from_pyproject(text) if path.name == PYPROJECT else cls.from_toml(text)
 
     @classmethod
     def from_toml(cls, text: str) -> Manifest:
         """Parse and validate a `chefe.toml` string."""
         return cls.model_validate(tomllib.loads(text))
+
+    @classmethod
+    def from_pyproject(cls, text: str) -> Manifest:
+        """Parse a `pyproject.toml` string, reading `[tool.chefe]` and inheriting `[project]`."""
+        return cls.model_validate(manifest_body(text))
 
     def declared(self, env: str, platform: str) -> dict[str, Declared]:
         """Every dep declared for ``env`` on ``platform``: name -> Declared(source, spec)."""

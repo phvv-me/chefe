@@ -15,14 +15,14 @@ from plumbum.commands.processes import CommandNotFound
 from pydantic import ValidationError
 from rich.console import Console
 
-from . import ENV_DIR, MANIFEST, PIXI_RESOLVED
+from . import ENV_DIR, MANIFEST, NAME, PIXI_RESOLVED, PYPROJECT
 from .backends import Cargo, Node, Pixi
 from .compiled import PackageJson, PixiManifest
 from .console import markup
 from .environment import Environment
 from .errors import ChefeError, manifest_validation_text
 from .global_env import GlobalEnv
-from .manifest import Document, Manifest, Spec
+from .manifest import Document, Manifest, Spec, find_manifest
 from .state import Declared
 from .tree_report import KIND_SOURCES, TreeReport
 from .utils import current_platform
@@ -53,7 +53,7 @@ class PackageManager:
         # Absolute so the env bin dirs put on PATH stay valid when a backend runs
         # from inside the env: a relative npm path breaks once the cwd changes.
         root = (root if root is not None else self.discover()).absolute()
-        self.manifest = root / MANIFEST
+        self.manifest = find_manifest(root) or root / MANIFEST
         self.root = root
         self.out = root / ENV_DIR
         self.activate_path = self.out / ACTIVATE
@@ -73,7 +73,7 @@ class PackageManager:
         """
         start = (start or Path()).absolute()
         for directory in (start, *start.parents):
-            if (directory / MANIFEST).exists():
+            if find_manifest(directory) is not None:
                 return directory
         return start
 
@@ -90,6 +90,21 @@ class PackageManager:
             raise ChefeError(f"{self.manifest.name} has invalid TOML: {error}") from error
         except ValidationError as error:
             raise ChefeError(manifest_validation_text(self.manifest, error)) from error
+
+    def editable_manifest(self) -> None:
+        """Refuse to rewrite a manifest embedded in `pyproject.toml`.
+
+        `install` and `run` only read, so they work everywhere. The in-place writers
+        (`add`/`remove`/`upgrade`) do not: a runtime dep belongs in `[project.dependencies]` and a
+        tool in `[tool.chefe]`, so which table a package lands in is ambiguous for an embedded
+        manifest. They point at the file to edit by hand rather than guess.
+        """
+        if self.manifest.name == PYPROJECT:
+            raise ChefeError(
+                f"`{NAME}` cannot edit the [tool.{NAME}] manifest inside {PYPROJECT}. "
+                f"Edit {PYPROJECT} by hand: runtime deps under [project.dependencies], "
+                f"tools and tasks under [tool.{NAME}]."
+            )
 
     def node(self, manifest: Manifest, env: str = "default") -> Node:
         """The Node.js backend for ``env``'s merged toolchain: manager binary plus install dir."""
@@ -331,6 +346,7 @@ class PackageManager:
         """
         if not packages:
             raise ChefeError("No packages given. Usage: `chefe add <package> [-l language]`.")
+        self.editable_manifest()
         self.require_language(self.load(), language, env)
         if language in PIXI_RESOLVED:
             self.sync()
@@ -389,6 +405,7 @@ class PackageManager:
 
     def upgrade(self, *packages: str, env: str = "") -> None:
         """Update safely within constraints, or loosen constraints for named packages."""
+        self.editable_manifest()
         target = env or "default"
         if not packages:
             self._update_all(target)
@@ -406,6 +423,7 @@ class PackageManager:
 
     def remove(self, *packages: str) -> None:
         """Remove packages from the manifest wherever declared, then re-sync."""
+        self.editable_manifest()
         document = Document(self.manifest)
         removed = document.remove(packages)
         document.save()
