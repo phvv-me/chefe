@@ -103,7 +103,11 @@ disable_error_code = ["explicit-any"]
 
 [tool.pyrefly]
 project-includes = ["src/**/*.py"]
-python-interpreter-path = "../../.chefe/.pixi/envs/default/bin/python"
+# No interpreter path here. It used to point into the monorepo's pixi env, which does not
+# exist in CI, so pyrefly silently fell back to its bundled 3.13 and rejected every t-string
+# and unparenthesized multi-exception except as invalid syntax. Pinning the version lets
+# pyrefly use whichever 3.14 interpreter the caller already activated.
+python-version = "3.14"
 
 [tool.pytest.ini_options]
 addopts = "-q -ra --strict-markers --cov=chefe --cov-report=term-missing"
