@@ -17,12 +17,14 @@ from rich.console import Console
 
 from . import ENV_DIR, MANIFEST, NAME, PIXI_RESOLVED, PYPROJECT
 from .backends import Cargo, Node, Pixi
+from .base import Toml
 from .compiled import PackageJson, PixiManifest
 from .console import markup
 from .environment import Environment
 from .errors import ChefeError, manifest_validation_text
+from .generated import GeneratedFiles
 from .global_env import GlobalEnv
-from .manifest import Document, Manifest, Spec, find_manifest
+from .manifest import Document, Manifest, Spec, ToolchainSpec, find_manifest
 from .state import Declared
 from .tree_report import KIND_SOURCES, TreeReport
 from .utils import current_platform
@@ -30,6 +32,14 @@ from .utils import current_platform
 # Records the manifest digest a sync compiled from, so a later command can tell when the
 # generated env has gone stale against an edited manifest and recompile before activating.
 SYNCED = ".synced"
+
+# Records local project metadata that Pixi resolves but chefe.toml does not contain.
+_RESOLUTION_INPUTS = ".resolution-inputs"
+
+# Present when the lock no longer matches the resolution inputs. Written instead of deleting
+# `pixi.lock`, so a workspace shared by several processes always keeps a usable lock while one
+# of them is still solving, and a solve that fails leaves the previous environment intact.
+_RESOLUTION_STALE = ".resolution-stale"
 
 # The generated per-host activation script, beside the compiled pixi manifest.
 ACTIVATE = "activate.sh"
@@ -161,6 +171,25 @@ class PackageManager:
         """A content hash of the manifest, the key that decides whether a compile is current."""
         return hashlib.sha256(self.manifest.read_bytes()).hexdigest()
 
+    def _resolution_digest(self, manifest: Manifest) -> str:
+        """Hash local project metadata that can change without changing the compiled manifest."""
+        digest = hashlib.sha256()
+        for declared in manifest.local_python_projects():
+            project = self.root / declared / PYPROJECT
+            digest.update(declared.encode())
+            try:
+                digest.update(project.read_bytes())
+            except FileNotFoundError:
+                digest.update(b"\0")
+        return digest.hexdigest()
+
+    @staticmethod
+    def _resolution_manifest(text: str) -> dict[str, Toml]:
+        """Return generated Pixi data that can affect dependency resolution."""
+        document = tomllib.loads(text)
+        document.pop("tasks", None)
+        return document
+
     def stale(self, env: str = "default") -> bool:
         """Whether ``env``'s generated env predates the current manifest content.
 
@@ -176,39 +205,92 @@ class PackageManager:
 
     def sync(self, env: str = "default") -> None:
         """Compile the manifest into the generated `{pixi.toml, package.json}` for ``env``."""
+        files = GeneratedFiles(directory=self.out)
+        with files.locked():
+            self._compile(files, env)
+        self.console.print(f"[green]synced[/green] {self.manifest.name} → {self.out.name}/")
+
+    def _compile(self, files: GeneratedFiles, env: str) -> None:
+        """Write every generated file for ``env``. The caller must already hold the lock."""
+        source_digest = self.digest()
         manifest = self.load()
-        self.out.mkdir(exist_ok=True)
-        self.pixi.manifest.write_text(PixiManifest.from_manifest(manifest).to_toml())
+        compiled = PixiManifest.from_manifest(manifest).to_toml()
+        resolution_digest = self._resolution_digest(manifest)
+        try:
+            existing = self.pixi.manifest.read_text(encoding="utf-8")
+            resolution_manifest_changed = self._resolution_manifest(
+                existing
+            ) != self._resolution_manifest(compiled)
+        except FileNotFoundError:
+            resolution_manifest_changed = False
+        try:
+            resolution_changed = (self.out / _RESOLUTION_INPUTS).read_text(
+                encoding="utf-8"
+            ) != resolution_digest
+        except FileNotFoundError:
+            resolution_changed = True
+        # Mark the lock stale rather than deleting it. Deleting takes the whole workspace down
+        # for every other process until someone completes a solve, which on a shared machine is
+        # minutes, and a solve that then fails leaves nothing to fall back to. The marker gates
+        # `install` exactly as the missing file did, while `run` keeps working against the
+        # environment it already had.
+        if (resolution_manifest_changed or resolution_changed) and self.pixi.lock.exists():
+            files.write(self.out / _RESOLUTION_STALE, resolution_digest)
+            self.console.print(
+                "[yellow]stale[/yellow] pixi.lock, resolution inputs changed, "
+                "run `chefe install --resolve`"
+            )
+        files.write(self.pixi.manifest, compiled)
+        files.write(self.out / _RESOLUTION_INPUTS, resolution_digest)
         if manifest.workspace.dotenv:
-            (self.out / DOTENV).write_text(DOTENV_SH)
+            files.write(self.out / DOTENV, DOTENV_SH)
         node = self.node(manifest, env)
         if (package := PackageJson.from_manifest(manifest, env, current_platform())) is not None:
-            node.manifest.write_text(package.to_json())
+            files.write(node.manifest, package.to_json())
         else:
             # The last nodejs dep is gone; a stale package.json would keep reinstalling it.
             node.manifest.unlink(missing_ok=True)
-        # Stamp the digest this compile came from so `stale()` can later spot an edited manifest.
-        (self.out / f"{SYNCED}.{env}").write_text(self.digest())
-        self.console.print(f"[green]synced[/green] {self.manifest.name} → {self.out.name}/")
+        # The marker is replaced last, after every file from this manifest is visible.
+        files.write(self.out / f"{SYNCED}.{env}", source_digest)
 
     def install(
         self,
         env: str = "default",
         activate_only: Annotated[bool, Parameter(name="--activate-only")] = False,
+        resolve: Annotated[bool, Parameter(name="--resolve")] = False,
     ) -> None:
         """Sync, then make ``env`` match the manifest across every language/toolchain.
 
         Always (re)generates the per-host `activate.sh` so a job or interactive shell can
         `source .chefe/activate.sh && python -m ...`. `--activate-only` skips the package
-        install and just refreshes that script against the already-provisioned env.
+        install and just refreshes that script against the already-provisioned env. An existing
+        lock is required by default. `--resolve` explicitly permits updating it on this machine.
+
+        The whole provisioning runs under the workspace lock, not just the compile. Several
+        agents share one checkout here, and holding the lock only across the compile let one
+        process rewrite the manifest while another was still solving against it, which is how a
+        workspace ends up with a manifest and a lock that disagree.
         """
         if not activate_only:
-            self.sync(env)
-            self.pixi("install", "-e", env)
-            with self.activated(env):
-                self.node(self.load(), env)("install")
-            crates = self.rust_deps(env)
-            self.cargo.sync(env, crates)
+            files = GeneratedFiles(directory=self.out)
+            with files.locked():
+                self._compile(files, env)
+                self.console.print(
+                    f"[green]synced[/green] {self.manifest.name} → {self.out.name}/"
+                )
+                stale = self.out / _RESOLUTION_STALE
+                if stale.exists() and not resolve:
+                    raise ChefeError(
+                        "pixi.lock no longer matches the resolution inputs. Run "
+                        "`chefe install --resolve` on a solve-capable machine."
+                    )
+                self.pixi.install(env, resolve=resolve)
+                # Only a solve that returned without raising has produced a lock that matches.
+                stale.unlink(missing_ok=True)
+                with self.activated(env):
+                    self.node(self.load(), env)("install")
+                crates = self.rust_deps(env)
+                self.cargo.sync(env, crates)
             self.console.print(markup(t"[green]installed[/green] env [bold]{env}[/bold]"))
         self.activate(env)
 
@@ -260,26 +342,30 @@ class PackageManager:
         and env vars always apply. A name that is neither fails with guidance up front,
         instead of pixi's bare command-not-found.
 
-        A leading `--env <name>` (or `-e <name>`) selects a non-default `[envs.*]`
-        environment, e.g. `chefe run --env serving python ...`. The whole command line is
-        taken as one leading-hyphen var-positional so the env flag and any hyphenated
-        passthrough flags reach chefe verbatim instead of being parsed as chefe options.
-        Help flags ride along too. `chefe run atpx --help` prints atpx's help, and this
-        page appears only when no task name precedes the flag, as in `chefe run --help`.
+        A leading `--resolve` permits Pixi to update an existing lock on this machine. A leading
+        `--env <name>` (or `-e <name>`) then selects a non-default `[envs.*]` environment, e.g.
+        `chefe run --resolve --env serving python ...`. The whole command line is taken as one
+        leading-hyphen var-positional so chefe's flags and target flags arrive verbatim. Help
+        flags ride along too. `chefe run atpx --help` prints atpx's help, and this page appears
+        only when no task name precedes the flag, as in `chefe run --help`.
         """
-        env, rest = self.env_from(argv)
+        resolve = argv[:1] == ("--resolve",)
+        env, rest = self.env_from(argv[1:] if resolve else argv)
         with self.activated(env):
             head = rest[0]
-            if head not in self.load().tasks:
+            manifest = self.load()
+            tasks = manifest.tasks if env == "default" else manifest.envs[env].tasks
+            if head not in tasks:
                 try:
                     local[head]
                 except CommandNotFound as error:
+                    task_table = "[tasks]" if env == "default" else f"[envs.{env}.tasks]"
                     raise ChefeError(
                         f"No task or executable named `{head}` was found in the `{env}` "
                         "environment. "
-                        "Run `chefe install`, check `chefe tree`, or add it to [tasks]."
+                        f"Run `chefe install`, check `chefe tree`, or add it to {task_table}."
                     ) from error
-            code = self.pixi.exit_code("run", "-e", env, *rest)
+            code = self.pixi.launch("run", env, *rest, resolve=resolve)
         if code:
             raise SystemExit(code)
 
@@ -320,10 +406,10 @@ class PackageManager:
         if code := self.pixi.exec(with_, args):
             raise SystemExit(code)
 
-    def shell(self, env: str = "default") -> None:
+    def shell(self, env: str = "default", resolve: bool = False) -> None:
         """Open an activated shell in ``env``, exiting with the shell's own status."""
         with self.activated(env):
-            code = self.pixi.exit_code("shell", "-e", env)
+            code = self.pixi.enter(env, resolve=resolve)
         if code:
             raise SystemExit(code)
 
@@ -347,20 +433,28 @@ class PackageManager:
         if not packages:
             raise ChefeError("No packages given. Usage: `chefe add <package> [-l language]`.")
         self.editable_manifest()
-        self.require_language(self.load(), language, env)
-        if language in PIXI_RESOLVED:
+        source = next(
+            (
+                name
+                for name, runtimes in ToolchainSpec.RUNTIME_PACKAGES.items()
+                if language in runtimes
+            ),
+            language,
+        )
+        self.require_language(self.load(), source, env)
+        if source in PIXI_RESOLVED:
             self.sync()
             self.pixi(
-                "add", *self.package_specs(packages, spec), pypi=language == "python", feature=env
+                "add", *self.package_specs(packages, spec), pypi=source == "python", feature=env
             )
             self.pull()
         else:
             document = Document(self.manifest)
-            document.add(language, env, packages, spec)
+            document.add(source, env, packages, spec)
             document.save()
             target = env or "default"
             self.sync(target)
-            self.provision(language, target)
+            self.provision(source, target)
         self.console.print(markup(t"[green]added[/green] {', '.join(packages)}"))
 
     def provision(self, language: str, env: str) -> None:
@@ -397,7 +491,9 @@ class PackageManager:
                 f"Environment `{env}` does not exist. "
                 f'Declare `{language} = "*"` under {table} before using `-l {language}`.'
             )
-        if language not in scope.deps and language not in manifest.deps:
+        declared = set(scope.deps) | set(manifest.deps)
+        runtimes = ToolchainSpec.RUNTIME_PACKAGES.get(language, frozenset({language}))
+        if runtimes.isdisjoint(declared):
             raise ChefeError(
                 f"Language `{language}` is not declared in {table}. "
                 f'Add `{language} = "*"` there before using `-l {language}`.'

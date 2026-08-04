@@ -1,17 +1,3 @@
-"""MkDocs post-build hook that writes english `llms.txt` and `llms-full.txt`.
-
-This replaces `mkdocs-llmstxt`, which produces empty output when
-`mkdocs-static-i18n` is also active (its per-locale rebuilds wipe the
-plugin's page cache). The hook runs once after the whole build and reads
-the english source markdown straight from the `docs/` tree, so it is
-immune to the i18n rebuild dance and always emits english only.
-
-`SECTIONS` mirrors the section layout this package wants in its index.
-Each entry maps a section name to the english doc paths under `docs/`,
-in order. Translated copies carry a locale suffix (`.es.md`, `.ja.md`)
-and are ignored.
-"""
-
 import re
 from pathlib import Path
 

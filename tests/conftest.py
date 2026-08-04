@@ -84,7 +84,7 @@ def document(manifest_path: Path) -> Document:
 @pytest.fixture(autouse=True)
 def stable_chefe_version(mocker: MockerFixture) -> None:
     """Keep source-tree tests independent of installed package metadata."""
-    mocker.patch("chefe.manifest.schema.version", return_value="0.0.test")
+    mocker.patch("chefe.manifest.schema.manifest.version", return_value="0.0.test")
 
 
 @pytest.fixture
@@ -124,10 +124,28 @@ def recording_backends(mocker: MockerFixture) -> list[tuple[str, ...]]:
         record(self, verb, *args, **flags)
         return 0
 
+    def record_launch(self: Pixi, verb: str, *args: str, resolve: bool = False) -> int:
+        calls.append((type(self).__name__, verb, *(("--resolve",) if resolve else ()), *args))
+        return 0
+
+    def record_install(self: Pixi, env: str, *, resolve: bool = False) -> None:
+        calls.append(
+            (type(self).__name__, "install", *(("--resolve",) if resolve else ()), "-e", env)
+        )
+
+    def record_enter(self: Pixi, env: str, *, resolve: bool = False) -> int:
+        calls.append(
+            (type(self).__name__, "shell", *(("--resolve",) if resolve else ()), "-e", env)
+        )
+        return 0
+
     for backend in (Pixi, Node, Cargo):
         mocker.patch.object(backend, "__call__", side_effect=record, autospec=True)
         mocker.patch.object(backend, "installed", side_effect=lambda self, env: {}, autospec=True)
     mocker.patch.object(Pixi, "exit_code", side_effect=record_code, autospec=True)
+    mocker.patch.object(Pixi, "launch", side_effect=record_launch, autospec=True)
+    mocker.patch.object(Pixi, "enter", side_effect=record_enter, autospec=True)
+    mocker.patch.object(Pixi, "install", side_effect=record_install, autospec=True)
     mocker.patch.object(
         Cargo,
         "sync",

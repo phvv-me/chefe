@@ -30,6 +30,7 @@ classifiers = [
 ]
 dependencies = [
   "cyclopts>=4",
+  "filelock>=3.20,<4",
   "pydantic>=2.13",
   "tomlkit>=0.13",
   "packaging>=24",
@@ -92,11 +93,17 @@ init_typed = true
 # are untyped by design. We scope the `explicit-any` waiver to exactly the modules that define
 # such models, keeping the global ban in force everywhere else.
 [[tool.mypy.overrides]]
-module = ["chefe.base", "chefe.manifest.schema", "chefe.compiled.npm"]
+module = [
+  "chefe.base",
+  "chefe.manifest.schema",
+  "chefe.manifest.schema.*",
+  "chefe.compiled.npm",
+]
 disable_error_code = ["explicit-any"]
 
 [tool.pyrefly]
 project-includes = ["src/**/*.py"]
+python-interpreter-path = "../../.chefe/.pixi/envs/default/bin/python"
 
 [tool.pytest.ini_options]
 addopts = "-q -ra --strict-markers --cov=chefe --cov-report=term-missing"
@@ -121,3 +128,6 @@ exclude_lines = [
 dev = [
     "inline-snapshot>=0.34.1",
 ]
+
+[tool.mcmr.model]
+enabled = true

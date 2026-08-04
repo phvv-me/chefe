@@ -377,6 +377,16 @@ def test_runtime_keyed_toolchains_are_discovered_from_deps() -> None:
             """,
             r"\[envs.dev\] is reserved",
         ),
+        (
+            """
+            [workspace]
+            name = "toolchains"
+            platforms = ["linux-64"]
+
+            [envs.chefe-platforms]
+            """,
+            r"\[envs.chefe-platforms\] is reserved",
+        ),
     ],
 )
 def test_manifest_rejects_invalid_scope_tables(text: str, match: str) -> None:
@@ -568,6 +578,68 @@ def test_unknown_table_error_points_to_a_chefe_upgrade() -> None:
     message = str(caught.value)
     assert "no matching package in [deps]" in message  # the cause, self-contained
     assert "0.0.test" in message  # names the running version, so the user knows to upgrade
+
+
+@pytest.mark.parametrize("scope", ["", "envs.analysis."])
+def test_free_threaded_python_runtime_owns_python_toolchain(scope: str) -> None:
+    """`python-freethreading` permits normal `[python.deps]` package declarations."""
+    environment = (
+        "\n[envs.analysis]\nno-default = true\n"
+        '\n[envs.analysis.deps]\npython-freethreading = "*"\n'
+        if scope
+        else '\n[deps]\npython-freethreading = "*"\n'
+    )
+    manifest = Manifest.from_toml(
+        '[workspace]\nname = "w"\nplatforms = ["linux-64"]\n'
+        f'{environment}\n[{scope}python.deps]\npydantic = "*"\n'
+    )
+
+    assert manifest.toolchains_for("analysis" if scope else "default", "linux-64")[
+        "python"
+    ].deps == {"pydantic": Spec(version="*")}
+
+
+def test_local_python_projects_cover_every_scope_once() -> None:
+    """Local project metadata from root, dev, overlays, and envs participates in locking."""
+    manifest = Manifest.from_toml(
+        """
+        [workspace]
+        name = "w"
+        platforms = ["linux-64"]
+
+        [deps]
+        python = "*"
+
+        [python.deps]
+        root = { path = "packages/root", editable = true }
+        registry = ">=1"
+
+        [dev.python.deps]
+        root = { path = "packages/root", editable = true }
+
+        [on.linux.python.deps]
+        overlay = { path = "packages/overlay", editable = true }
+
+        [envs.analysis]
+        no-default = true
+
+        [envs.analysis.deps]
+        python = "*"
+
+        [envs.analysis.python.deps]
+        environment = { path = "packages/environment", editable = true }
+
+        [envs.analysis.on.linux.python.deps]
+        target = { path = "packages/target", editable = true }
+        """
+    )
+
+    assert manifest.local_python_projects() == [
+        "packages/environment",
+        "packages/overlay",
+        "packages/root",
+        "packages/target",
+    ]
 
 
 def test_pyproject_version_matches_changelog_head() -> None:

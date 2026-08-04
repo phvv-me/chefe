@@ -70,7 +70,7 @@ markdown_extensions:
   - pymdownx.inlinehilite
 
 hooks:
-  - docs/hooks/llms.py
+  - hooks/llms.py
 
 plugins:
   - search

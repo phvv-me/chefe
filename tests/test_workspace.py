@@ -1,3 +1,4 @@
+import os
 from collections.abc import Callable
 from pathlib import Path
 
@@ -8,7 +9,9 @@ from pytest_mock import MockerFixture
 
 from chefe.backends import Cargo, Node, Pixi
 from chefe.errors import ChefeError
+from chefe.generated import GeneratedFiles
 from chefe.manager import PackageManager
+from chefe.manifest import Manifest
 from chefe.state import Installed
 from chefe.tree_report import TreeReport
 
@@ -122,6 +125,147 @@ def test_clean_removes_generated_env(workspace: Workspace) -> None:
     assert not manager.out.exists()
 
 
+def test_generated_files_replace_complete_content_atomically(tmp_path: Path) -> None:
+    """A reader keeps the prior file until the complete replacement is ready."""
+    target = tmp_path / "pixi.toml"
+    target.write_text("old")
+    observed: list[tuple[str, str]] = []
+    original = Path.replace
+
+    def inspect(temporary: Path, destination: Path) -> Path:
+        observed.append((destination.read_text(), temporary.read_text()))
+        return original(temporary, destination)
+
+    files = GeneratedFiles(directory=tmp_path)
+    with pytest.MonkeyPatch.context() as monkeypatch:
+        monkeypatch.setattr(Path, "replace", inspect)
+        files.write(target, "complete")
+
+    assert observed == [("old", "complete")]
+    assert target.read_text() == "complete"
+    assert not list(tmp_path.glob(".pixi.toml.*"))
+
+
+def test_sync_leaves_identical_pixi_manifest_mtime_unchanged(workspace: Workspace) -> None:
+    """An identical `chefe sync` is a true no-op for the compiled Pixi manifest."""
+    manager = workspace('[deps]\npython = "*"\n')
+    manager.sync()
+    target = manager.pixi.manifest
+    fixed = 1_700_000_000_123_456_789
+    os.utime(target, ns=(fixed, fixed))
+
+    manager.sync()
+
+    assert target.stat().st_mtime_ns == fixed
+
+
+def test_sync_marks_a_lock_stale_when_serving_resolution_inputs_change(
+    workspace: Workspace,
+) -> None:
+    """An editable dep, URL wheel, and raised Python floor cannot retain the older lock."""
+    original = """
+        [workspace]
+        name = "w"
+        platforms = ["linux-64", "linux-aarch64"]
+
+        [envs.serving]
+        no-default = true
+        platforms = ["linux-64", "linux-aarch64"]
+
+        [envs.serving.deps]
+        python = ">=3.12,<3.14"
+
+        [envs.serving.python.deps]
+        patos = { path = "packages/patos", editable = true }
+
+        [envs.serving.on.linux-aarch64.python.deps]
+        vllm = { url = "https://wheels.example/vllm-aarch64.whl" }
+        """
+    manager = workspace("")
+    manager.manifest.write_text(original)
+    manager.sync("serving")
+    compiled = manager.pixi.manifest.read_text()
+    manager.pixi.lock.write_text("version: 7\n")
+
+    raised = manager.manifest.read_text().replace(">=3.12,<3.14", ">=3.13,<3.14")
+    manager.manifest.write_text(raised)
+    manager.sync("serving")
+
+    refreshed = manager.pixi.manifest.read_text()
+    assert compiled != refreshed
+    assert 'python = ">=3.13,<3.14"' in refreshed
+    assert 'path = "../packages/patos"' in refreshed
+    assert 'url = "https://wheels.example/vllm-aarch64.whl"' in refreshed
+    # The lock survives so other processes sharing this checkout keep a usable environment,
+    # and the marker is what makes a later `install` demand `--resolve`.
+    assert manager.pixi.lock.read_text() == "version: 7\n"
+    assert (manager.out / ".resolution-stale").exists()
+
+
+def test_sync_preserves_a_lock_when_the_compiled_manifest_is_identical(
+    workspace: Workspace,
+) -> None:
+    """An idempotent sync keeps the verified generated pair intact."""
+    manager = workspace('[deps]\npython = "*"\n')
+    manager.sync()
+    manager.pixi.lock.write_text("version: 7\n")
+
+    manager.sync()
+
+    assert manager.pixi.lock.read_text() == "version: 7\n"
+
+
+def test_sync_preserves_a_lock_when_only_a_task_changes(workspace: Workspace) -> None:
+    """A task edit recompiles Pixi without forcing an unrelated dependency solve."""
+    manager = workspace(
+        """
+        [deps]
+        python = "*"
+
+        [tasks]
+        check = "python -m pytest"
+        """
+    )
+    manager.sync()
+    original = manager.pixi.manifest.read_text()
+    manager.pixi.lock.write_text("version: 7\n")
+
+    changed = manager.manifest.read_text().replace("python -m pytest", "python -m pytest -q")
+    manager.manifest.write_text(changed)
+    manager.sync()
+
+    assert manager.pixi.manifest.read_text() != original
+    assert manager.pixi.lock.read_text() == "version: 7\n"
+
+
+def test_sync_marks_a_lock_stale_when_local_project_identity_changes(
+    workspace: Workspace,
+) -> None:
+    """Replacing a project at one path cannot retain its former distribution identity."""
+    project = workspace(
+        """
+        [deps]
+        python = "*"
+
+        [python.deps]
+        archy = { path = "packages/archy", editable = true }
+        """
+    )
+    metadata = project.root / "packages" / "archy" / "pyproject.toml"
+    metadata.parent.mkdir(parents=True)
+    metadata.write_text('[project]\nname = "legacy-archy"\nversion = "0.1.0"\n')
+    project.sync()
+    compiled = project.pixi.manifest.read_text()
+    project.pixi.lock.write_text("version: 7\n")
+
+    metadata.write_text('[project]\nname = "archy"\nversion = "0.41.0"\n')
+    project.sync()
+
+    assert project.pixi.manifest.read_text() == compiled
+    assert project.pixi.lock.read_text() == "version: 7\n"
+    assert (project.out / ".resolution-stale").exists()
+
+
 def test_add_toolchain_dep_edits_manifest_and_provisions(
     workspace: Workspace, recording_backends: list[tuple[str, ...]]
 ) -> None:
@@ -186,6 +330,28 @@ def test_add_pixi_languages_go_through_pixi_and_pull(
     manager.add("requests", language=language, spec=spec)
     assert expected in recording_backends
     assert pulled == [True]
+
+
+@pytest.mark.parametrize("language", ["python", "python-freethreading"])
+def test_add_python_dep_accepts_the_free_threaded_runtime(
+    workspace: Workspace,
+    recording_backends: list[tuple[str, ...]],
+    monkeypatch: pytest.MonkeyPatch,
+    language: str,
+) -> None:
+    """Both Python spellings route a free-threaded runtime to the normal Python package table."""
+    monkeypatch.setattr(PackageManager, "pull", lambda self: None)
+    manager = workspace(
+        """
+        [deps]
+        python-freethreading = "*"
+        """
+    )
+
+    manager.add("packaging", language=language)
+
+    assert ("Pixi", "add", "--pypi", "packaging") in recording_backends
+    assert "[python-freethreading.deps]" not in manager.manifest.read_text()
 
 
 @pytest.mark.parametrize(
@@ -396,6 +562,28 @@ def test_install_drives_every_backend(
     assert {("Pixi", "install"), ("Node", "install"), ("Cargo", "sync")} <= verbs
 
 
+def test_install_refuses_a_stale_lock_without_resolve(
+    workspace: Workspace, recording_backends: list[tuple[str, ...]]
+) -> None:
+    """A lock the manifest has outgrown blocks install rather than being deleted underneath it.
+
+    Several agents share one checkout here, so deleting the lock would take every other process
+    down until somebody finished solving. Refusing keeps the old environment usable meanwhile.
+    """
+    manager = workspace('[deps]\npython = "*"\n')
+    manager.install()
+    manager.pixi.lock.write_text("version: 7\n")
+    grown = manager.manifest.read_text().replace('python = "*"', 'python = "*"\nripgrep = "*"')
+    manager.manifest.write_text(grown)
+
+    with pytest.raises(ChefeError, match="no longer matches the resolution inputs"):
+        manager.install()
+
+    assert manager.pixi.lock.read_text() == "version: 7\n"
+    manager.install(resolve=True)
+    assert not (manager.out / ".resolution-stale").exists()
+
+
 def test_activate_writes_a_sourceable_script(workspace: Workspace, mocker: MockerFixture) -> None:
     """`chefe activate` writes `.chefe/activate.sh` embedding the pixi hook and pinned modules."""
     manager = workspace('[deps]\npython = "*"\n\n[modules]\nnvidia = "26.3"\ngcc = "15.2.0"\n')
@@ -423,6 +611,17 @@ def test_install_activate_only_skips_package_install(
     manager.install(activate_only=True)
     assert not any(call[1] == "install" for call in recording_backends)
     assert (manager.out / "activate.sh").exists()
+
+
+def test_install_resolve_threads_the_explicit_solve_permission(
+    workspace: Workspace, recording_backends: list[tuple[str, ...]]
+) -> None:
+    """`install --resolve` reaches Pixi as an explicit permission to refresh the lock."""
+    manager = workspace('[deps]\npython = "*"\n')
+
+    manager.install(resolve=True)
+
+    assert ("Pixi", "install", "--resolve", "-e", "default") in recording_backends
 
 
 def test_node_backend_uses_the_named_manager(workspace: Workspace) -> None:
@@ -517,7 +716,8 @@ def test_passthrough_verbs_exit_with_the_inner_code(
         build = "echo build"
         """
     )
-    monkeypatch.setattr(Pixi, "exit_code", lambda self, *a, **k: code)
+    monkeypatch.setattr(Pixi, "launch", lambda self, *a, **k: code)
+    monkeypatch.setattr(Pixi, "enter", lambda self, *a, **k: code)
     invoke = (lambda: manager.run("build")) if verb == "run" else manager.shell
     if code:
         with pytest.raises(SystemExit) as exit_info:
@@ -551,7 +751,8 @@ def test_run_and_shell_expose_npm_bins(
     def note(verb: str) -> None:
         seen.append((verb, str(binary_dir) in local.env["PATH"]))
 
-    monkeypatch.setattr(Pixi, "exit_code", lambda self, verb, *a, **k: note(verb) or 0)
+    monkeypatch.setattr(Pixi, "launch", lambda self, verb, *a, **k: note(verb) or 0)
+    monkeypatch.setattr(Pixi, "enter", lambda self, *a, **k: note("shell") or 0)
     manager.run("qmd", "--version")
     manager.shell()
     assert seen == [("run", True), ("shell", True)]
@@ -574,20 +775,20 @@ def test_run_leading_env_flag_selects_a_declared_environment(
         [deps]
         python = "*"
 
-        [tasks]
-        build = "echo build"
-
         [envs.gpu]
         no-default = true
 
         [envs.gpu.deps]
         python = "*"
+
+        [envs.gpu.tasks]
+        build = "echo build"
         """
     )
     seen: list[tuple[str, ...]] = []
-    monkeypatch.setattr(Pixi, "exit_code", lambda self, *a, **k: seen.append(a) or 0)
+    monkeypatch.setattr(Pixi, "launch", lambda self, *a, **k: seen.append(a) or 0)
     manager.run("--env", "gpu", "build", "--flag")
-    assert seen == [("run", "-e", "gpu", "build", "--flag")]
+    assert seen == [("run", "gpu", "build", "--flag")]
 
 
 def test_run_unknown_env_fails_fast(workspace: Workspace) -> None:
@@ -631,6 +832,25 @@ def test_activation_recompiles_an_edited_manifest(
     assert manager.stale() is False  # activation recompiled, so the marker matches again
     assert 'FOO = "bar"' in manager.pixi.manifest.read_text()  # the new var reached the compile
     assert "recompiling" in capsys.readouterr().out
+
+
+def test_sync_keeps_a_mid_compile_manifest_edit_stale(
+    workspace: Workspace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A manifest edit during compilation cannot bless output built from prior content."""
+    manager = workspace("[deps]\npython = '*'\n")
+    load = manager.load
+
+    def load_then_edit() -> Manifest:
+        manifest = load()
+        manager.manifest.write_text(manager.manifest.read_text() + '\n[env]\nFOO = "bar"\n')
+        return manifest
+
+    monkeypatch.setattr(manager, "load", load_then_edit)
+    manager.sync()
+
+    assert manager.stale() is True
+    assert 'FOO = "bar"' not in manager.pixi.manifest.read_text()
 
 
 def test_x_exits_with_the_inner_code(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

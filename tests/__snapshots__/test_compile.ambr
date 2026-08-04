@@ -51,6 +51,7 @@
   cupy = ">=13"
   
   [feature.serving]
+  channels = ["conda-forge/label/python_dev", "conda-forge"]
   platforms = ["linux-64-serving"]
   
   [feature.serving.dependencies]
@@ -59,7 +60,7 @@
   [feature.serving.pypi-dependencies]
   vllm = ">=0.6"
   
-  [feature.chefe-system]
+  [feature.chefe-platforms]
   platforms = ["osx-arm64-system", "linux-64-system"]
   
   [environments.serving]
@@ -67,7 +68,7 @@
   no-default-feature = true
   
   [environments.default]
-  features = ["chefe-system"]
+  features = ["chefe-platforms"]
   
   [tasks.build]
   cmd = "python -m demo.build"

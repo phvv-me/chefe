@@ -64,6 +64,7 @@ cupy = ">=13"
 [envs.serving]
 no-default = true
 platforms = ["linux-64"]
+channels = ["conda-forge/label/python_dev", "conda-forge"]
 
 [envs.serving.system]
 cuda = "12.0"
@@ -100,8 +101,8 @@ def test_pixi_toml_snapshot(manifest: Manifest, snapshot: SnapshotAssertion) -> 
     assert PixiManifest.from_manifest(manifest).to_toml() == snapshot
 
 
-def test_feature_reuses_a_matching_rich_workspace_platform() -> None:
-    """A feature with the root virtual packages names the existing platform once."""
+def test_matching_virtual_packages_reuse_the_root_platform_variant() -> None:
+    """A matching environment floor selects the root rich platform without duplication."""
     manifest = Manifest.from_toml(
         """
         [workspace]
@@ -127,11 +128,12 @@ def test_feature_reuses_a_matching_rich_workspace_platform() -> None:
     ]
     assert pixi.feature["serving"]["platforms"] == ["linux-64-system"]
     assert pixi.feature["analysis"]["platforms"] == ["linux-64-system"]
-    assert pixi.feature["chefe-system"]["platforms"] == ["linux-64-system"]
+    assert pixi.feature["chefe-platforms"]["platforms"] == ["linux-64-system"]
+    assert pixi.environments["default"] == {"features": ["chefe-platforms"]}
 
 
-def test_environment_only_virtual_packages_keep_plain_workspace_platforms() -> None:
-    """An environment variant can coexist with ordinary workspace platforms."""
+def test_environment_virtual_packages_create_a_named_platform_variant() -> None:
+    """An environment floor adds a rich variant without changing the default route."""
     manifest = Manifest.from_toml(
         """
         [workspace]
@@ -152,6 +154,13 @@ def test_environment_only_virtual_packages_keep_plain_workspace_platforms() -> N
         "linux-64",
         {"name": "linux-64-serving", "platform": "linux-64", "cuda": "13.0"},
     ]
+    assert body["feature"]["serving"]["platforms"] == ["linux-64-serving"]
+    assert body["feature"]["chefe-platforms"]["platforms"] == [
+        "osx-arm64",
+        "linux-64",
+    ]
+    assert body["environments"]["default"] == {"features": ["chefe-platforms"]}
+    assert "system-requirements" not in body
 
 
 def test_package_json_snapshot(manifest: Manifest, snapshot: SnapshotAssertion) -> None:

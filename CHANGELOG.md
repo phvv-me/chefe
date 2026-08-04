@@ -6,8 +6,33 @@ The format follows Keep a Changelog, and releases are cut from the version in `p
 
 ## 0.0.25
 
+### Fixed
+
+- Editing `chefe.toml` no longer deletes `.chefe/pixi.lock`. The lock was removed whenever the
+  compiled manifest changed, which took the whole workspace down until someone noticed and
+  re-resolved, and every command in the meantime failed with a confusing missing lock error.
+  Chefe now writes a `.resolution-stale` marker beside the lock instead, so the environment
+  keeps working and the drift is reported rather than enforced.
+
+- `chefe shell` no longer freezes the terminal. The subshell was launched through the seam that
+  pipes output so chefe can retain a copy, which left an interactive shell drawing its prompt and
+  its line editor into a pipe while the terminal stayed in raw mode. The shell now provisions the
+  environment through the ordinary locked install, where lock drift is still diagnosed, and then
+  receives the caller's own stdin, stdout, and stderr.
+
+- Generated Pixi manifests use named rich platform entries for root and environment virtual
+  packages. Current Pixi 0.72 accepts this documented replacement for deprecated
+  `system-requirements` tables, so Chefe no longer emits a warning on every command.
+- Generated manifests are replaced atomically under a workspace lock, so simultaneous Chefe
+  commands cannot expose an empty or partly written `pixi.toml` to one another.
+- `python-freethreading` now owns normal `[python.deps]` toolchain tables just like `python`, so
+  a CPython 3.14t environment can declare Python packages without a false unknown-table error.
+
 ### Added
 
+- Named environments can own tasks through `[envs.<name>.tasks]`. Chefe compiles them into the
+  matching Pixi feature and `chefe run --env <name> <task>` resolves them without exposing the
+  task in unrelated environments.
 - chefe now reads its manifest from a `[tool.chefe]` table inside `pyproject.toml` when one is
   present, the way ruff, pytest, and hatch read their own `[tool.*]` tables, so a Python package
   keeps a single file. A `pyproject.toml` without `[tool.chefe]` (for example a monorepo root that

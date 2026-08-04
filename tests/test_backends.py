@@ -1,6 +1,11 @@
 import json
+import os
+import sys
 from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor
+from io import BytesIO, StringIO
 from pathlib import Path
+from threading import Event
 
 import pytest
 from plumbum import local
@@ -57,6 +62,41 @@ def test_passthrough_preserves_exit_code(
     assert Tool.passthrough(local[tool_paths["pixi"]]["run"]) == code
 
 
+def test_handover_gives_the_child_the_callers_own_streams() -> None:
+    """An interactive command inherits the caller's stdout, where `stream` would hand it a pipe.
+
+    The child compares the inode behind its own stdout with the caller's: equal means the very
+    same open file, which is what lets a shell redraw the terminal it took over.
+    """
+    probe = "import os, sys; sys.exit(0 if os.fstat(1).st_ino == int(sys.argv[1]) else 3)"
+    inode = str(os.fstat(1).st_ino)
+
+    assert Tool.handover(local[sys.executable]["-c", probe, inode]) == 0
+    assert Tool.stream(local[sys.executable]["-c", probe, inode]).returncode == 3
+
+
+def test_shell_provisions_before_handing_over_the_terminal(
+    mocker: MockerFixture, tmp_path: Path
+) -> None:
+    """`enter` provisions through the ordinary locked install, then gives the shell the tty."""
+    order: list[str] = []
+    mocker.patch.object(
+        Pixi,
+        "install",
+        side_effect=lambda self, env, resolve=False: order.append(f"install -e {env}"),
+        autospec=True,
+    )
+    mocker.patch.object(
+        Pixi,
+        "handover",
+        side_effect=lambda command: order.append(" ".join(command.formulate()[1:])) or 0,
+    )
+
+    assert Pixi(tmp_path).enter("research") == 0
+    assert order[0] == "install -e research"
+    assert order[1] == f"shell --manifest-path {tmp_path / 'pixi.toml'} -e research"
+
+
 @pytest.mark.parametrize("code", [0, 7])
 def test_exit_code_threads_the_real_command_code(
     code: int, fp: FakeProcess, tmp_path: Path, tool_paths: dict[str, str]
@@ -64,6 +104,182 @@ def test_exit_code_threads_the_real_command_code(
     """`exit_code` runs the backend through its real seam and returns the command's own code."""
     fp.register([tool_paths["pixi"], fp.any()], returncode=code)
     assert Pixi(tmp_path).exit_code("run", "task") == code
+
+
+def test_output_relay_flushes_an_incomplete_multibyte_tail() -> None:
+    """The live relay retains a replacement marker when a process ends mid-codepoint."""
+    destination = StringIO()
+
+    assert Tool._relay(BytesIO(b"\xe2"), destination, "utf-8") == "�"
+    assert destination.getvalue() == "�"
+
+
+def test_output_relay_emits_a_short_protocol_message_without_filling_the_buffer() -> None:
+    """A small response is relayed after one pipe read while the producing process stays open."""
+
+    class NotifyingDestination(StringIO):
+        """A text destination that signals as soon as the relay writes its first chunk."""
+
+        def __init__(self) -> None:
+            super().__init__()
+            self.written = Event()
+
+        def write(self, text: str) -> int:
+            """Retain ``text`` and wake the waiting assertion."""
+            count = super().write(text)
+            self.written.set()
+            return count
+
+    read_fd, write_fd = os.pipe()
+    reader = os.fdopen(read_fd, "rb")
+    writer = os.fdopen(write_fd, "wb", buffering=0)
+    destination = NotifyingDestination()
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        relayed = executor.submit(Tool._relay, reader, destination, "utf-8")
+        writer.write(b'{"jsonrpc":"2.0"}\n')
+        immediate = destination.written.wait(timeout=0.5)
+        writer.close()
+        result = relayed.result(timeout=1)
+    reader.close()
+
+    assert immediate is True
+    assert result == '{"jsonrpc":"2.0"}\n'
+    assert destination.getvalue() == '{"jsonrpc":"2.0"}\n'
+
+
+def test_failed_pixi_install_reaches_the_callers_output(
+    fp: FakeProcess,
+    tmp_path: Path,
+    tool_paths: dict[str, str],
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """A Pixi failure is tee'd before chefe raises, including both native output streams."""
+    Pixi(tmp_path).lock.write_text("version: 7\n")
+    fp.register(
+        [tool_paths["pixi"], fp.any()],
+        returncode=17,
+        stdout="pixi solver context\n",
+        stderr="pixi solver failed\n",
+    )
+
+    with pytest.raises(ChefeError, match="pixi install"):
+        Pixi(tmp_path).install("default")
+
+    captured = capsys.readouterr()
+    assert captured.out == "pixi solver context\n"
+    assert captured.err == "pixi solver failed\n"
+
+
+def test_successful_pixi_install_returns_cleanly(
+    fp: FakeProcess, tmp_path: Path, tool_paths: dict[str, str]
+) -> None:
+    """A successful locked installation has no error epilogue."""
+    Pixi(tmp_path).lock.write_text("version: 7\n")
+    fp.register([tool_paths["pixi"], fp.any()], stdout="environment ready\n")
+
+    assert Pixi(tmp_path).install("default") is None
+
+
+def test_failed_pixi_query_replays_captured_output(
+    fp: FakeProcess,
+    tmp_path: Path,
+    tool_paths: dict[str, str],
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Captured Pixi queries replay native diagnostics before their user-facing error."""
+    fp.register(
+        [tool_paths["pixi"], fp.any()],
+        returncode=1,
+        stdout="list context\n",
+        stderr="list failed\n",
+    )
+
+    with pytest.raises(ChefeError, match="pixi list"):
+        Pixi(tmp_path).installed("default")
+
+    captured = capsys.readouterr()
+    assert captured.out == "list context\n"
+    assert captured.err == "list failed\n"
+
+
+def test_locked_environment_refuses_manifest_drift_with_actionable_error(
+    fp: FakeProcess, tmp_path: Path, tool_paths: dict[str, str]
+) -> None:
+    """A stale lock aborts without a second solving call and explains the explicit escape."""
+    pixi = Pixi(tmp_path)
+    pixi.lock.write_text("version: 7\n")
+    fp.register(
+        [tool_paths["pixi"], fp.any()],
+        returncode=1,
+        stderr="the lock file is not up-to-date with the workspace\n",
+    )
+
+    with pytest.raises(ChefeError, match=r"chefe.toml drifted.*--resolve"):
+        pixi.install("default")
+
+    assert len(fp.calls) == 1
+    assert "install" in list(fp.calls[0])
+    assert "--locked" in list(fp.calls[0])
+
+
+@pytest.mark.parametrize(("resolve", "expected"), [(False, True), (True, False)])
+def test_task_environment_uses_an_existing_lock_unless_resolve_was_requested(
+    resolve: bool,
+    expected: bool,
+    fp: FakeProcess,
+    tmp_path: Path,
+    tool_paths: dict[str, str],
+) -> None:
+    """The compiled pair selects `--locked`, while `--resolve` deliberately omits it."""
+    pixi = Pixi(tmp_path)
+    pixi.lock.write_text("version: 7\n")
+    fp.register([tool_paths["pixi"], fp.any()], stdout="")
+
+    assert pixi.launch("run", "default", "build", resolve=resolve) == 0
+    assert all(("--locked" in list(call)) is expected for call in fp.calls)
+
+
+def test_install_requires_a_lock_unless_resolution_was_requested(
+    fp: FakeProcess, tmp_path: Path, tool_paths: dict[str, str]
+) -> None:
+    """A missing generated lock never turns an ordinary install into an implicit solve."""
+    with pytest.raises(ChefeError, match=r"pixi.lock is missing.*--resolve"):
+        Pixi(tmp_path).install("serving")
+
+    assert not fp.calls
+
+
+def test_resolving_install_verifies_the_new_lock_through_the_locked_path(
+    fp: FakeProcess, tmp_path: Path, tool_paths: dict[str, str]
+) -> None:
+    """A solve is successful only after the resulting pair passes Pixi's locked install check."""
+    pixi = Pixi(tmp_path)
+    pixi.lock.write_text("version: 7\n")
+    base = [tool_paths["pixi"], "install", "--manifest-path", str(pixi.manifest)]
+    fp.register([*base, "-e", "serving"], stdout="environment ready\n")
+    fp.register([*base, "--locked", "-e", "serving"], stdout="lock verified\n")
+
+    pixi.install("serving", resolve=True)
+
+    assert len(fp.calls) == 2
+    assert "--locked" not in list(fp.calls[0])
+    assert "--locked" in list(fp.calls[1])
+
+
+def test_locked_task_failure_keeps_its_exit_code(
+    fp: FakeProcess, tmp_path: Path, tool_paths: dict[str, str]
+) -> None:
+    """A normal task failure under `--locked` is not mislabeled as manifest drift."""
+    pixi = Pixi(tmp_path)
+    pixi.lock.write_text("version: 7\n")
+    fp.register(
+        [tool_paths["pixi"], fp.any()],
+        returncode=9,
+        stdout="✨ Pixi task (build): command\n",
+        stderr="task says lock file is not up-to-date\n",
+    )
+
+    assert pixi.launch("run", "default", "build") == 9
 
 
 def test_node_available_requires_package_json(tmp_path: Path) -> None:

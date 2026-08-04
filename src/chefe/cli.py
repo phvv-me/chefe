@@ -84,7 +84,8 @@ def run_command(manager: PackageManager, app: App) -> RunCommand:
 
     @functools.wraps(command)
     def run(*argv: str) -> None:
-        target = argv[2:] if argv[:1] in (("--env",), ("-e",)) else argv
+        target = argv[1:] if argv[:1] == ("--resolve",) else argv
+        target = target[2:] if target[:1] in (("--env",), ("-e",)) else target
         if target and target[0] in HELP_FLAGS:
             app.help_print(["run"])
             return

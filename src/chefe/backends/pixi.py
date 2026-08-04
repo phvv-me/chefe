@@ -12,7 +12,7 @@ from plumbum.commands.processes import CommandNotFound
 
 from ..errors import ChefeError
 from ..state import Installed
-from .tool import Tool
+from .tool import CommandResult, Tool
 
 # chefe's engine. `pip install chefe` brings no binary, so chefe installs it on first use the
 # way the old installer did, with the official script that drops `pixi` into `PIXI_HOME/bin`.
@@ -27,6 +27,11 @@ class Pixi(Tool):
 
     def __init__(self, out: Path) -> None:
         self.manifest = out / self.filename
+
+    @property
+    def lock(self) -> Path:
+        """The lock file paired with chefe's compiled Pixi manifest."""
+        return self.manifest.with_suffix(".lock")
 
     @staticmethod
     def home() -> Path:
@@ -67,10 +72,14 @@ class Pixi(Tool):
         try:
             return local["pixi"]
         except CommandNotFound:
-            binary = self.home() / "bin" / "pixi"
-            if not binary.exists():
-                self.bootstrap()
-            return local[str(binary)]
+            return local[str(self.installed_binary())]
+
+    def installed_binary(self) -> Path:
+        """Return the fallback Pixi binary after bootstrapping it when absent."""
+        binary = self.home() / "bin" / "pixi"
+        if not binary.exists():
+            self.bootstrap()
+        return binary
 
     def scope(self) -> tuple[str, ...]:
         return ("--manifest-path", str(self.manifest))
@@ -82,7 +91,8 @@ class Pixi(Tool):
         This is the exact activation `chefe run` performs, captured as text so a generated
         `activate.sh` can reproduce the whole pixi env without invoking pixi at job time.
         """
-        return str(self.command["shell-hook", "-s", shell, "-e", env, *self.scope()]())
+        command = self.command["shell-hook", "-s", shell, "-e", env, *self.scope()]
+        return self.output(command, "pixi shell-hook")
 
     def global_prefix(self, name: str) -> Path:
         """The prefix of global env ``name``; its `bin/` holds python/npm/cargo."""
@@ -106,7 +116,8 @@ class Pixi(Tool):
             raise ChefeError("global cargo install failed (see its output above)")
 
     def installed(self, env: str) -> dict[str, Installed]:
-        records = json.loads(self.command["list", *self.scope(), "-e", env, "--json"]())
+        command = self.command["list", *self.scope(), "-e", env, "--json"]
+        records = json.loads(self.output(command, "pixi list"))
         return {
             rec["name"]: Installed(
                 version=rec.get("version"), kind=rec["kind"], explicit=rec["is_explicit"]
@@ -122,8 +133,65 @@ class Pixi(Tool):
 
     def global_exists(self, name: str) -> bool:
         """Whether a global env named ``name`` already exists (per `pixi global list`)."""
-        envs = json.loads(self.command["global", "list", "--json"]())
+        command = self.command["global", "list", "--json"]
+        envs = json.loads(self.output(command, "pixi global list"))
         return any(env["name"] == name for env in envs)
+
+    def environment_result(self, verb: str, *args: str, resolve: bool = False) -> CommandResult:
+        """Run an environment verb and retain its streamed native output."""
+        if not resolve and not self.lock.exists():
+            raise ChefeError(
+                "pixi.lock is missing. Run `chefe install --resolve` on a solve-capable "
+                "machine to create and verify the generated manifest/lock pair."
+            )
+        locked = not resolve
+        return self.within_cwd(self.stream, verb, *args, locked=locked)
+
+    def install(self, env: str, *, resolve: bool = False) -> None:
+        """Install ``env`` locked by default and verify every explicitly resolved lock."""
+        locked = not resolve
+        result = self.environment_result("install", "-e", env, resolve=resolve)
+        self._raise_on_lock_drift(result, locked)
+        if result.returncode:
+            raise ChefeError("`pixi install` failed (see its output above)")
+        if resolve:
+            self.install(env)
+
+    @staticmethod
+    def _raise_on_lock_drift(result: CommandResult, locked: bool) -> None:
+        """Turn Pixi's pre-task lock rejection into chefe's actionable recovery message."""
+        failure = f"{result.stdout}\n{result.stderr}".lower().replace("-", " ")
+        task_started = "pixi task (" in failure
+        if (
+            result.returncode
+            and locked
+            and not task_started
+            and "lock file" in failure
+            and "not up to date" in failure
+        ):
+            raise ChefeError(
+                "chefe.toml drifted from pixi.lock. Run `chefe install --resolve` on a "
+                "solve-capable machine and reship `.chefe/pixi.toml` with "
+                "`.chefe/pixi.lock`, or pass `--resolve` to solve here."
+            )
+
+    def launch(self, verb: str, env: str, *args: str, resolve: bool = False) -> int:
+        """Launch a task locked by default, diagnosing drift before task startup."""
+        locked = not resolve
+        result = self.environment_result(verb, "-e", env, *args, resolve=resolve)
+        self._raise_on_lock_drift(result, locked)
+        return result.returncode
+
+    def enter(self, env: str, *, resolve: bool = False) -> int:
+        """Hand the terminal to an interactive shell inside ``env``, returning its exit code.
+
+        A subshell owns the terminal, so it cannot go through :meth:`launch`, whose retained
+        output seam would leave the user typing into a screen nothing redraws. Provisioning
+        happens first through the ordinary locked install, which is where drift is diagnosed
+        and reported, and only then does the shell take over the tty.
+        """
+        self.install(env, resolve=resolve)
+        return self.handover(self.command[("shell", *self.scope(), "-e", env)])
 
     def global_add(self, name: str, specs: tuple[str, ...]) -> None:
         """Add conda specs to global env ``name``, creating the env first if it is missing.

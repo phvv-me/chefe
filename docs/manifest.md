@@ -24,6 +24,14 @@ ripgrep = "*"
 pueue  = ">=4"
 ```
 
+Named environments may replace the workspace channels for an isolated solver experiment.
+
+```toml
+[envs.preview]
+no-default = true
+channels = ["conda-forge/label/python_dev", "conda-forge"]
+```
+
 ## Python
 
 Python packages are resolved into the **same** environment. `[python]` holds settings, `[python.deps]` the packages, and `[python.indexes]` named extra indexes.
@@ -217,3 +225,12 @@ Named commands that run inside the environment, reached with `chefe run <task>`.
 serve = { run = "python -m my_project.server", depends = ["build"] }
 build = "python -m my_project.build"
 ```
+
+A task that only belongs to a named environment stays with that environment.
+
+```toml
+[envs.serving.tasks]
+smoke = "python -m my_project.smoke"
+```
+
+Run it with `chefe run --env serving smoke`.

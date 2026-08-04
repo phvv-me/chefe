@@ -353,9 +353,15 @@ def run_workspace(root: Path, body: str = '[tasks]\nbuild = "echo build"\n') -> 
 
 
 def recording_exit_code(monkeypatch: pytest.MonkeyPatch) -> list[tuple[str, ...]]:
-    """Stub `Pixi.exit_code` with a success recorder and return its call list."""
+    """Stub Pixi's locked environment seam with a success recorder and return its calls."""
     seen: list[tuple[str, ...]] = []
-    monkeypatch.setattr(Pixi, "exit_code", lambda self, *args, **flags: seen.append(args) or 0)
+    monkeypatch.setattr(
+        Pixi,
+        "launch",
+        lambda self, *args, resolve=False, **flags: (
+            seen.append((*args, *(("--resolve",) if resolve else ()))) or 0
+        ),
+    )
     return seen
 
 
@@ -375,18 +381,33 @@ def test_run_passes_help_flags_through_to_the_target(
     with pytest.raises(SystemExit) as exit_info:
         app(["run", "build", "--help"])
     assert exit_info.value.code in (0, None)
-    assert seen == [("run", "-e", "default", "build", "--help")]
+    assert seen == [("run", "default", "build", "--help")]
 
 
-@pytest.mark.parametrize("flag", ["--help", "-h"])
+def test_run_resolve_flag_is_consumed_before_the_target(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`chefe run --resolve` permits solving without forwarding the flag to the task."""
+    run_workspace(tmp_path)
+    seen = recording_exit_code(monkeypatch)
+    app = build(PackageManager(tmp_path))
+
+    with pytest.raises(SystemExit) as exit_info:
+        app(["run", "--resolve", "build"])
+
+    assert exit_info.value.code in (0, None)
+    assert seen == [("run", "default", "build", "--resolve")]
+
+
+@pytest.mark.parametrize("argv", [("--help",), ("-h",), ("--resolve", "--help")])
 def test_run_without_a_target_still_prints_its_own_help(
-    flag: str, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    argv: tuple[str, ...], tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """A help flag with no task name keeps printing the run command's own page."""
     run_workspace(tmp_path)
     app = build(PackageManager(tmp_path))
     with pytest.raises(SystemExit) as exit_info:
-        app(["run", flag])
+        app(["run", *argv])
     assert exit_info.value.code in (0, None)
     out = capsys.readouterr().out
     assert "chefe run" in out
@@ -412,14 +433,14 @@ def test_run_env_flag_and_help_flag_both_reach_the_target(
     run_workspace(
         tmp_path,
         """
-        [tasks]
-        build = "echo build"
+            [envs.gpu]
+            no-default = true
 
-        [envs.gpu]
-        no-default = true
+            [envs.gpu.deps]
+            python = "*"
 
-        [envs.gpu.deps]
-        python = "*"
+            [envs.gpu.tasks]
+            build = "echo build"
         """,
     )
     seen = recording_exit_code(monkeypatch)
@@ -427,4 +448,4 @@ def test_run_env_flag_and_help_flag_both_reach_the_target(
     with pytest.raises(SystemExit) as exit_info:
         app(["run", "-e", "gpu", "build", "--help"])
     assert exit_info.value.code in (0, None)
-    assert seen == [("run", "-e", "gpu", "build", "--help")]
+    assert seen == [("run", "gpu", "build", "--help")]
