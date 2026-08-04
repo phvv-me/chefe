@@ -4,7 +4,7 @@ All notable changes to chefe are documented here.
 
 The format follows Keep a Changelog, and releases are cut from the version in `pyproject.toml`.
 
-## 0.0.25
+## 0.0.26
 
 ### Fixed
 
