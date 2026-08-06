@@ -1,17 +1,9 @@
-from .document import Document
-from .pyproject import find_manifest
-from .schema import Env, Header, Manifest, Modules, Registry, Scope, Spec, Task, ToolchainSpec
-
-__all__ = [
-    "Document",
-    "Env",
-    "Header",
-    "Manifest",
-    "Modules",
-    "Registry",
-    "Scope",
-    "Spec",
-    "Task",
-    "ToolchainSpec",
-    "find_manifest",
-]
+from .editing import Document as Document
+from .pyproject import find_manifest as find_manifest
+from .schema import Env as Env
+from .schema import Header as Header
+from .schema import Manifest as Manifest
+from .schema import Runtimes as Runtimes
+from .schema import Scope as Scope
+from .schema import Spec as Spec
+from .schema import ToolchainSpec as ToolchainSpec

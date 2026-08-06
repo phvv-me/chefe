@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "chefe"
-version = "0.0.26"
+version = "0.0.27"
 description = "One manifest for every package manager | conda, Python, Node.js, Rust & more, behind a single file."
 readme = "README.md"
 requires-python = ">=3.14"
@@ -94,7 +94,7 @@ init_typed = true
 # such models, keeping the global ban in force everywhere else.
 [[tool.mypy.overrides]]
 module = [
-  "chefe.base",
+  "chefe.core.base.flexible",
   "chefe.manifest.schema",
   "chefe.manifest.schema.*",
   "chefe.compiled.npm",
@@ -110,8 +110,9 @@ project-includes = ["src/**/*.py"]
 python-version = "3.14"
 
 [tool.pytest.ini_options]
-addopts = "-q -ra --strict-markers --cov=chefe --cov-report=term-missing"
+addopts = "-q -ra --import-mode=importlib --cov=chefe --cov-report=term-missing"
 testpaths = ["tests"]
+strict = true
 
 [tool.coverage.run]
 source = ["chefe"]
@@ -133,5 +134,47 @@ dev = [
     "inline-snapshot>=0.34.1",
 ]
 
-[tool.mcmr.model]
-enabled = true
+[tool.mcmr.execution]
+contextual = true
+
+[tool.mcmr.contextual]
+backend = "claude"
+model = "claude-sonnet-5"
+reasoning_effort = "high"
+
+# Per-rule policy for what the frozen contract or an external framework keeps in place. Each entry
+# names the reason the code cannot move, so a new occurrence still has to be argued rather than
+# inheriting the exemption.
+
+# `PixiManifest` and `Manifest` mirror the pixi and chefe TOML table layouts one to one, so their
+# field count belongs to the file formats and shrinking it would hide a table a user can write.
+[tool.mcmr.rules."ALL-CLAS0004"]
+exclude = ["src/chefe/compiled/pixi.py", "src/chefe/manifest/schema/root/manifest.py"]
+
+# `tomlkit.parse` is the round-trip TOML boundary each editing seam calls directly. Wrapping it
+# would create the pass-through ALL-FUNC0005 rejects, so the call stays where a reader expects it.
+[tool.mcmr.rules."ALL-DEPE0003"]
+ignored_callables = ["tomlkit.parse"]
+
+# The stub is monkeypatched over `pathlib.Path.replace`, so its parameters have to match that
+# signature exactly, `(temporary, destination)` included.
+[tool.mcmr.rules."ALL-PARA0001"]
+exclude = ["tests/activation/test_generated.py"]
+
+# `chefe install --activate-only` and `--resolve` are the published CLI surface. The two flags are
+# frozen for users, and folding them into one named behavior would break every existing invocation.
+[tool.mcmr.rules."ALL-PARA0004"]
+exclude = ["src/chefe/workspace/commands/environment.py"]
+
+# `on_post_build` is the mkdocs hook entry point named by `mkdocs.yml`, so mkdocs reaches it and no
+# repository reference can. The same framework contract hands it the whole `MkDocsConfig`.
+[tool.mcmr.rules."ALL-PARA0002"]
+exclude = ["hooks/llms.py"]
+
+[tool.mcmr.rules."ALL-REAC0001"]
+exclude = ["hooks/llms.py"]
+
+# tomlkit hands back plain Python values, so rendering a compiled table has to ask what each value
+# is. There is no capability to depend on at that boundary.
+[tool.mcmr.rules."PY-INTE0001"]
+exclude = ["src/chefe/compiled/pixi.py"]

@@ -1,6 +1,6 @@
 from typing import Self
 
-from ..base import Model, Toml
+from ..core import Model, Toml
 from ..manifest import Manifest
 
 
@@ -11,35 +11,42 @@ class PlatformMatrix(Model):
     environments: dict[str, list[str]]
     default: list[str]
 
+    @staticmethod
+    def descriptor(name: str, *, platform: str, system: dict[str, str]) -> Toml:
+        """One workspace platform entry, a bare platform unless virtual package floors apply."""
+        return {"name": name, "platform": platform, **system} if system else platform
+
     @classmethod
     def from_manifest(cls, manifest: Manifest) -> Self:
-        """Expand Chefe virtual package floors into named Pixi platform variants."""
+        """Expand Chefe virtual package floors into named Pixi platform variants.
+
+        An env that raises its own floors gets a `<platform>-<env>` variant of every platform it
+        selects, and any floor anywhere forces each env to name the variants it runs on.
+        """
         platforms = manifest.workspace.platforms
-        root_names = {
-            platform: f"{platform}-system" if manifest.system else platform
-            for platform in platforms
+        root = {p: f"{p}-system" if manifest.system else p for p in platforms}
+        raised = {
+            name: env.system
+            for name, env in manifest.envs.items()
+            if env.system and env.system != manifest.system
         }
+        selected = {name: env.platforms or platforms for name, env in manifest.envs.items()}
+        routed = bool(manifest.system or any(env.system for env in manifest.envs.values()))
         workspace: list[Toml] = [
-            {"name": root_names[platform], "platform": platform, **manifest.system}
-            if manifest.system
-            else platform
-            for platform in platforms
+            cls.descriptor(root[p], platform=p, system=manifest.system) for p in platforms
         ]
-        requires_routing = bool(
-            manifest.system or any(env.system for env in manifest.envs.values())
+        workspace.extend(
+            cls.descriptor(f"{p}-{name}", platform=p, system=system)
+            for name, system in raised.items()
+            for p in selected[name]
         )
-        environments: dict[str, list[str]] = {}
-        for name, env in manifest.envs.items():
-            selected = env.platforms or platforms
-            if env.system and env.system != manifest.system:
-                names = [f"{platform}-{name}" for platform in selected]
-                workspace.extend(
-                    {"name": variant, "platform": platform, **env.system}
-                    for platform, variant in zip(selected, names, strict=True)
-                )
-            else:
-                names = [root_names[platform] for platform in selected]
-            if env.platforms or requires_routing:
-                environments[name] = names
-        default = list(root_names.values()) if requires_routing else []
-        return cls(workspace=workspace, environments=environments, default=default)
+        environments = {
+            name: [f"{p}-{name}" if name in raised else root[p] for p in selected[name]]
+            for name, env in manifest.envs.items()
+            if env.platforms or routed
+        }
+        return cls(
+            workspace=workspace,
+            environments=environments,
+            default=list(root.values()) if routed else [],
+        )

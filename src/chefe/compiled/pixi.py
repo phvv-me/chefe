@@ -1,16 +1,18 @@
+from collections.abc import Sequence
+
 import tomlkit
 from pydantic import Field
 
-from ..base import Model, Toml
-from ..manifest import Manifest, Spec, Task
+from ..core import Model, Task, Toml
+from ..manifest import Env, Manifest, Spec
 from .platforms import PlatformMatrix
 
 # pixi tables whose values are dependency specs; a ``path`` *source* lives inside
 # one of these specs, never at the dep-name level.
-DEP_TABLES = ("dependencies", "pypi-dependencies")
+_DEP_TABLES = ("dependencies", "pypi-dependencies")
 
 
-def reroot_source(spec: Toml) -> Toml:
+def _reroot_source(spec: Toml) -> Toml:
     """A single dep spec with a repo-relative local ``path`` source shifted up one level.
 
     The compiled manifest is emitted under ``.chefe/``, so ``packages/lote`` must
@@ -23,7 +25,7 @@ def reroot_source(spec: Toml) -> Toml:
     return spec
 
 
-def reparent(value: Toml) -> Toml:
+def _reparent(value: Toml) -> Toml:
     """Reroot local path deps in the compiled tables, leaving everything else as is.
 
     Only a ``path`` carried as a dependency *source* (a value under a
@@ -32,13 +34,13 @@ def reparent(value: Toml) -> Toml:
     """
     if isinstance(value, dict):
         return {
-            key: {name: reroot_source(spec) for name, spec in item.items()}
-            if key in DEP_TABLES and isinstance(item, dict)
-            else reparent(item)
+            key: {name: _reroot_source(spec) for name, spec in item.items()}
+            if key in _DEP_TABLES and isinstance(item, dict)
+            else _reparent(item)
             for key, item in value.items()
         }
     if isinstance(value, list):
-        return [reparent(item) for item in value]
+        return [_reparent(item) for item in value]
     return value
 
 
@@ -55,20 +57,35 @@ class PixiManifest(Model):
     environments: dict[str, Toml] = {}
     tasks: dict[str, Task] = {}
 
-    def to_toml(self) -> str:
-        """Render to `pixi.toml` text (hyphenated table names via the field aliases)."""
-        body = self.model_dump(by_alias=True, exclude_defaults=True)
-        workspace = body["workspace"]
+    @staticmethod
+    def activation_table(m: Manifest) -> dict[str, Toml]:
+        """The `[activation]` table: exported env vars plus the scripts pixi sources on entry.
+
+        The manifest is emitted under `.chefe/`, so a repo-root script path resolves one
+        directory up from where pixi runs it. The generated dotenv loader lives beside the
+        manifest and is sourced first, so a user script already sees the vars it loaded.
+        """
+        variables = {k: v for k, v in m.env.items() if not k.startswith("_.")}
+        scripts = [path if path.startswith("/") else f"../{path}" for path in m.activation.scripts]
+        if m.workspace.dotenv:
+            scripts.insert(0, "dotenv.sh")
+        return {
+            **({"env": variables} if variables else {}),
+            **({"scripts": scripts} if scripts else {}),
+        }
+
+    @staticmethod
+    def platform_array(platforms: Sequence[Toml]) -> tomlkit.items.Array:
+        """The workspace platform list as tomlkit items, each named variant an inline table."""
         rendered = tomlkit.array()
-        for platform in workspace["platforms"]:
+        for platform in platforms:
             if isinstance(platform, dict):
                 descriptor = tomlkit.inline_table()
                 descriptor.update(platform)
                 rendered.append(descriptor)
             else:
                 rendered.append(platform)
-        workspace["platforms"] = rendered
-        return tomlkit.dumps(body)
+        return rendered
 
     @staticmethod
     def task(spec: Task) -> Task:
@@ -92,36 +109,36 @@ class PixiManifest(Model):
         return out
 
     @classmethod
-    def from_manifest(cls, m: Manifest) -> PixiManifest:
-        """Build the pixi manifest from a validated :class:`Manifest`."""
-        python = m.python()
-        indexes = python.indexes
-        variables = {k: v for k, v in m.env.items() if not k.startswith("_.")}
-        # the manifest is emitted under `.chefe/`, so a repo-root script path
-        # resolves one directory up from where pixi runs it; the generated dotenv
-        # loader lives beside the manifest and runs first so user scripts see the vars
-        scripts = [path if path.startswith("/") else f"../{path}" for path in m.activation.scripts]
-        if m.workspace.dotenv:
-            scripts.insert(0, "dotenv.sh")
-        activation: dict[str, Toml] = {
-            **({"env": variables} if variables else {}),
-            **({"scripts": scripts} if scripts else {}),
+    def declared_feature(
+        cls, name: str, env: Env, platforms: PlatformMatrix, indexes: dict[str, str]
+    ) -> Toml:
+        """One `[feature.<name>]` table: the env's own deps, plus its platforms and tasks."""
+        return {
+            **env.feature(indexes),
+            **(
+                {"platforms": platforms.environments[name]}
+                if name in platforms.environments
+                else {}
+            ),
+            **(
+                {"tasks": {task: cls.task(spec) for task, spec in env.tasks.items()}}
+                if env.tasks
+                else {}
+            ),
         }
-        platforms = PlatformMatrix.from_manifest(m)
+
+    @classmethod
+    def features(
+        cls, m: Manifest, platforms: PlatformMatrix, indexes: dict[str, str]
+    ) -> tuple[dict[str, Toml], dict[str, Toml]]:
+        """The `[feature]` and `[environments]` tables: one feature per declared env, plus chefe's.
+
+        Beyond the declared envs, chefe owns two synthetic features that the default environment
+        picks up: `chefe-platforms` carries the workspace platform matrix, and `dev` carries the
+        `[dev.*]` deps so `chefe install` provisions dev tooling beside the runtime deps.
+        """
         feature: dict[str, Toml] = {
-            name: {
-                **env.feature(indexes),
-                **(
-                    {"platforms": platforms.environments[name]}
-                    if name in platforms.environments
-                    else {}
-                ),
-                **(
-                    {"tasks": {task: cls.task(spec) for task, spec in env.tasks.items()}}
-                    if env.tasks
-                    else {}
-                ),
-            }
+            name: cls.declared_feature(name, env, platforms, indexes)
             for name, env in m.envs.items()
         }
         environments: dict[str, Toml] = {
@@ -131,26 +148,30 @@ class PixiManifest(Model):
             }
             for name, env in m.envs.items()
         }
-        default_features: list[str] = []
-        if platforms.default:
-            feature["chefe-platforms"] = {"platforms": platforms.default}
-            default_features.append("chefe-platforms")
-        # `[dev.*]` deps become a `dev` feature added to the default environment, so
-        # `chefe install` provisions dev tooling beside the runtime deps.
-        if dev := m.dev.tables(indexes):
-            feature["dev"] = dev
-            default_features.append("dev")
-        if default_features:
-            environments["default"] = {"features": default_features}
-        workspace: dict[str, Toml] = {
-            "name": m.workspace.name,
-            "version": m.workspace.version,
-            "channels": m.workspace.channels,
-            "platforms": platforms.workspace,
+        owned: dict[str, Toml] = {
+            **({"chefe-platforms": {"platforms": platforms.default}} if platforms.default else {}),
+            **({"dev": dev} if (dev := m.dev.tables(indexes)) else {}),
         }
+        feature.update(owned)
+        if owned:
+            environments["default"] = {"features": list(owned)}
+        return feature, environments
+
+    @classmethod
+    def from_manifest(cls, m: Manifest) -> PixiManifest:
+        """Build the pixi manifest from a validated :class:`Manifest`."""
+        python = m.python()
+        indexes = python.indexes
+        platforms = PlatformMatrix.from_manifest(m)
+        feature, environments = cls.features(m, platforms, indexes)
         payload: dict[str, Toml] = {
-            "workspace": workspace,
-            "activation": activation,
+            "workspace": {
+                "name": m.workspace.name,
+                "version": m.workspace.version,
+                "channels": m.workspace.channels,
+                "platforms": platforms.workspace,
+            },
+            "activation": cls.activation_table(m),
             **m.tables(indexes),
             "pypi-options": python.options(),
             "target": {plat: scope.tables(indexes) for plat, scope in m.on.items()},
@@ -158,4 +179,10 @@ class PixiManifest(Model):
             "environments": environments,
             "tasks": {name: cls.task(spec) for name, spec in m.tasks.items()},
         }
-        return cls.model_validate(reparent(payload))
+        return cls.model_validate(_reparent(payload))
+
+    def to_toml(self) -> str:
+        """Render to `pixi.toml` text (hyphenated table names via the field aliases)."""
+        body = self.model_dump(by_alias=True, exclude_defaults=True)
+        body["workspace"]["platforms"] = self.platform_array(body["workspace"]["platforms"])
+        return tomlkit.dumps(body)

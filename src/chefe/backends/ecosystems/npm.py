@@ -1,0 +1,59 @@
+import json
+from pathlib import Path
+from typing import Self
+
+from ...core import Installed, current_platform
+from ...manifest import Manifest
+from ..base.tool import Tool
+
+
+class Node(Tool):
+    """The JS backend: it runs whichever package manager a project names, in the env dir.
+
+    npm, pnpm, yarn, and any future compatible tool all read the same `package.json` and write the
+    same `node_modules`, so the only thing chefe needs is the binary to call. Each installs into
+    its working directory by default, so running in `out` targets the env without a per-tool
+    directory flag and a new manager needs no code here, only its name in `[nodejs] manager`.
+    """
+
+    filename = "package.json"
+
+    def __init__(self, out: Path, manager: str = "npm") -> None:
+        self.out = out
+        self.name = manager
+        self.manifest = out / self.filename
+
+    @classmethod
+    def for_env(cls, manifest: Manifest, env: str, *, root: Path, out: Path) -> Self:
+        """The backend for ``env``'s merged nodejs toolchain: manager binary plus install dir.
+
+        An application keeps its `package.json` and `node_modules` at the workspace ``root``,
+        while an ordinary toolchain dep installs into the generated env dir ``out``.
+        """
+        nodejs = manifest.toolchains_for(env, platform=current_platform()).get("nodejs")
+        app = nodejs.app if nodejs is not None else False
+        manager = nodejs.manager if nodejs is not None and nodejs.manager else "npm"
+        return cls(root if app else out, manager)
+
+    def available(self) -> bool:
+        return self.manifest.exists()
+
+    def binary_dir(self) -> Path:
+        """Directory where installed npm package executables are linked."""
+        return self.out / "node_modules" / ".bin"
+
+    def cwd(self) -> Path:
+        return self.out
+
+    def installed(self, env: str) -> dict[str, Installed]:
+        manifests = (
+            *self.out.glob("node_modules/*/package.json"),
+            *self.out.glob("node_modules/@*/*/package.json"),
+        )
+        found = (json.loads(m.read_text()) for m in manifests)
+        # Linked workspace stubs may omit name or version; they are not installed packages.
+        return {
+            data["name"]: Installed(version=data["version"], kind="npm")
+            for data in found
+            if "name" in data and "version" in data
+        }

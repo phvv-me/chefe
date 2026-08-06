@@ -10,10 +10,12 @@ __pycache__/
 .venv/
 dist/
 build/
+site/
 *.egg-info/
 uv.lock
 
 # tooling
+.benchmarks/
 .ruff_cache/
 .pytest_cache/
 .hypothesis/

@@ -4,6 +4,21 @@ All notable changes to chefe are documented here.
 
 The format follows Keep a Changelog, and releases are cut from the version in `pyproject.toml`.
 
+## 0.0.27
+
+### Fixed
+
+- User-facing errors now print to stderr instead of stdout. A failure written to stdout is
+  invisible to anyone who redirects it (`chefe install > log`) and indistinguishable from output
+  to a CI step or an agent that captures the stream, so a refused install could read as a
+  finished one. The exit status was and remains 1 for every one of these, and the whole command
+  surface is now covered by a test that asserts both halves at once.
+
+- A command run in a directory with no manifest reports `chefe.toml not found` with the way out
+  instead of crashing with a raw `FileNotFoundError` traceback. `chefe install` and `chefe sync`
+  hashed the manifest before anything checked that a workspace was there, so every read of the
+  manifest now raises the same actionable error.
+
 ## 0.0.26
 
 ### Fixed
