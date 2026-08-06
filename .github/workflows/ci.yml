@@ -14,11 +14,14 @@ jobs:
     steps:
       - uses: actions/checkout@v6
       # local path, not the remote phvv-me/chefe/...@main tag, since this repository hosts the
-      # action, so its own CI proves the action before the other repositories consume it
+      # action, so its own CI proves the action before the other repositories consume it.
+      # chefe gitignores uv.lock, so resolve stays true to solve fresh, matching the old
+      # unfrozen `uv sync`
       - uses: ./.github/actions/setup
         with:
           mode: uv
           python-version: ${{ matrix.python }}
+          resolve: true
       - run: uv run ruff check .
       - run: uv run ruff format --check .
       - run: uv run mypy src
