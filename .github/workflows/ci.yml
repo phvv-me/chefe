@@ -13,11 +13,12 @@ jobs:
         python: ["3.14"]
     steps:
       - uses: actions/checkout@v6
-      - uses: astral-sh/setup-uv@v7
+      # local path, not the remote phvv-me/chefe/...@main tag, since this repository hosts the
+      # action, so its own CI proves the action before the other repositories consume it
+      - uses: ./.github/actions/setup
         with:
+          mode: uv
           python-version: ${{ matrix.python }}
-          enable-cache: true
-      - run: uv sync --extra dev
       - run: uv run ruff check .
       - run: uv run ruff format --check .
       - run: uv run mypy src
