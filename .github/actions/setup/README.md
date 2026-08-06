@@ -18,10 +18,23 @@ the action versions, the cache paths and the cache key in one place instead of f
 that hand-rolls those drifts from the others quietly, which is how one of ours ended up caching
 an environment it could not rebuild.
 
+Repositories that declare their development dependencies to uv rather than to chefe use the
+same action in `uv` mode, so the tool versions and the checkout still live in one place:
+
+```yaml
+  - uses: phvv-me/chefe/.github/actions/setup@main
+    with:
+      mode: uv
+      extras: dev sql
+  - run: uv run ruff check .
+```
+
 ## Inputs
 
 | input | default | when to change it |
 |---|---|---|
+| `mode` | `chefe` | `uv` for a repository without a `[tool.chefe]` manifest |
+| `extras` | `dev` | `uv` mode only, space separated, becomes repeated `--extra` |
 | `python-version` | `3.14` | the project's `requires-python` floor differs |
 | `chefe-version` | `>=0.0.27` | pin exactly when the build must survive a chefe release |
 | `cache-key-files` | `pyproject.toml` | pass `chefe.toml` when that is the manifest, or both |

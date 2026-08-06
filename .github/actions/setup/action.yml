@@ -4,6 +4,21 @@ description: >-
   workflow only has to name the tasks it wants to run.
 
 inputs:
+  mode:
+    description: >-
+      How the environment is built. `chefe` compiles the manifest and installs the solved
+      environment, which is what a repository declaring `[tool.chefe]` wants. `uv` runs a plain
+      locked `uv sync`, which is what the library packages do while they still declare their
+      development dependencies to uv directly. Both share the caching and the tool versions,
+      which is the point, since those are what drift when each repository writes its own.
+    required: false
+    default: chefe
+  extras:
+    description: >-
+      Space separated extras for `uv` mode, passed as repeated `--extra` flags. Ignored in
+      `chefe` mode, where the manifest already says what an environment contains.
+    required: false
+    default: dev
   python-version:
     description: The interpreter uv provisions. Match the project's requires-python.
     required: false
@@ -40,6 +55,7 @@ runs:
     # bootstrap. The tool goes to ~/.local/bin, which is not on PATH for later steps until
     # it is named in GITHUB_PATH.
     - name: install chefe
+      if: inputs.mode == 'chefe'
       shell: bash
       run: |
         uv tool install "chefe${{ inputs.chefe-version }}"
@@ -50,6 +66,7 @@ runs:
     # `.chefe/.pixi` is this project's built environment. The key covers the manifest alone,
     # so a dependency change correctly misses and rebuilds.
     - name: cache the solver and the solved environment
+      if: inputs.mode == 'chefe'
       uses: actions/cache@v4
       with:
         path: |
@@ -61,5 +78,19 @@ runs:
           chefe-${{ runner.os }}-
 
     - name: install the environment
+      if: inputs.mode == 'chefe'
       shell: bash
       run: chefe install ${{ inputs.resolve == 'true' && '--resolve' || '' }}
+
+    # `uv sync` is already locked and already caches through setup-uv, so this needs nothing
+    # beside it. `--frozen` is deliberate and matches `resolve: false` above, since a lock that
+    # no longer matches its manifest should fail here rather than be quietly re-solved.
+    - name: sync the environment
+      if: inputs.mode == 'uv'
+      shell: bash
+      env:
+        EXTRAS: ${{ inputs.extras }}
+      run: |
+        flags=()
+        for extra in $EXTRAS; do flags+=(--extra "$extra"); done
+        uv sync --frozen "${flags[@]}"
