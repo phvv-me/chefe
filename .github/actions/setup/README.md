@@ -44,7 +44,9 @@ same action in `uv` mode, so the tool versions and the checkout still live in on
 
 It defaults to false so a lock that no longer matches its manifest fails the build. Solving on
 the runner instead would hide exactly the drift a committed lock exists to catch, and a green run
-would then say nothing about whether the environment is reproducible anywhere else.
+would then say nothing about whether the environment is reproducible anywhere else. In `chefe`
+mode it becomes `chefe install --resolve`, and in `uv` mode it drops `--frozen` from `uv sync`.
 
-Committing `.chefe/pixi.toml`, `.chefe/pixi.lock` and `.chefe/.resolution-inputs` is what makes
-that default correct. chefe treats a missing digest as drift, so the three travel together.
+Committing `.chefe/pixi.toml`, `.chefe/pixi.lock` and `.chefe/.resolution-inputs` (`chefe` mode)
+or `uv.lock` (`uv` mode) is what makes that default correct. A repository that deliberately does
+not commit its lock sets `resolve: true` so its environment solves fresh instead of failing.

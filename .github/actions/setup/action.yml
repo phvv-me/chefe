@@ -83,14 +83,16 @@ runs:
       run: chefe install ${{ inputs.resolve == 'true' && '--resolve' || '' }}
 
     # `uv sync` is already locked and already caches through setup-uv, so this needs nothing
-    # beside it. `--frozen` is deliberate and matches `resolve: false` above, since a lock that
-    # no longer matches its manifest should fail here rather than be quietly re-solved.
+    # beside it. `--frozen` is the default and matches `resolve: false`, since a lock that no
+    # longer matches its manifest should fail here rather than be quietly re-solved. A repository
+    # whose lock is deliberately not committed sets `resolve: true` to solve fresh instead.
     - name: sync the environment
       if: inputs.mode == 'uv'
       shell: bash
       env:
         EXTRAS: ${{ inputs.extras }}
+        FROZEN: ${{ inputs.resolve == 'true' && '' || '--frozen' }}
       run: |
         flags=()
         for extra in $EXTRAS; do flags+=(--extra "$extra"); done
-        uv sync --frozen "${flags[@]}"
+        uv sync $FROZEN "${flags[@]}"
