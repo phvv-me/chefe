@@ -1,0 +1,65 @@
+name: Set up chefe
+description: >-
+  Install uv and chefe, restore the solved environment from cache, and install it, so a
+  workflow only has to name the tasks it wants to run.
+
+inputs:
+  python-version:
+    description: The interpreter uv provisions. Match the project's requires-python.
+    required: false
+    default: "3.14"
+  chefe-version:
+    description: >-
+      A pip specifier for chefe itself. Pin it exactly when a workflow must be reproducible
+      across a chefe release, and leave the floor when riding the latest is what you want.
+    required: false
+    default: ">=0.0.27"
+  cache-key-files:
+    description: >-
+      The files whose contents decide whether the cached environment is still valid. The
+      default covers a package that declares its dependencies in pyproject.toml. A repository
+      whose manifest is chefe.toml should pass that instead, and one with both should pass both.
+    required: false
+    default: pyproject.toml
+  resolve:
+    description: >-
+      Whether to solve when the lock does not match the manifest. Leave this false so a drifted
+      lock fails the build rather than being silently solved around, which is the whole point of
+      committing one. Set it true only where the lock is deliberately not committed.
+    required: false
+    default: "false"
+
+runs:
+  using: composite
+  steps:
+    - uses: astral-sh/setup-uv@v7
+      with:
+        python-version: ${{ inputs.python-version }}
+
+    # chefe installs pixi, the solver it compiles to, on first use, so this is the whole
+    # bootstrap. The tool goes to ~/.local/bin, which is not on PATH for later steps until
+    # it is named in GITHUB_PATH.
+    - name: install chefe
+      shell: bash
+      run: |
+        uv tool install "chefe${{ inputs.chefe-version }}"
+        echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+    # Three paths, because a cold run pays for all three. `~/.pixi` is the solver binary,
+    # `~/.cache/rattler` is the downloaded package store shared across environments, and
+    # `.chefe/.pixi` is this project's built environment. The key covers the manifest alone,
+    # so a dependency change correctly misses and rebuilds.
+    - name: cache the solver and the solved environment
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/.pixi
+          ~/.cache/rattler
+          .chefe/.pixi
+        key: chefe-${{ runner.os }}-${{ hashFiles(inputs.cache-key-files) }}
+        restore-keys: |
+          chefe-${{ runner.os }}-
+
+    - name: install the environment
+      shell: bash
+      run: chefe install ${{ inputs.resolve == 'true' && '--resolve' || '' }}
