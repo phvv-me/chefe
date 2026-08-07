@@ -363,22 +363,25 @@ def test_local_python_projects_cover_every_scope_once() -> None:
     ]
 
 
-def test_standalone_manager_is_provisioned_from_manager_field() -> None:
+@pytest.mark.parametrize(
+    ("scope", "expected"),
+    [
+        ({"deps": {"nodejs": "*"}, "nodejs": {"manager": "pnpm"}}, {"nodejs": "*", "pnpm": "*"}),
+        ({"deps": {"nodejs": "*"}, "nodejs": {"manager": "npm"}}, {"nodejs": "*"}),
+        (
+            {"deps": {"nodejs": "*", "pnpm": ">=10"}, "nodejs": {"manager": "pnpm"}},
+            {"nodejs": "*", "pnpm": ">=10"},
+        ),
+        ({"deps": {"zig": "*"}, "zig": {"manager": "zig"}}, {"zig": "*"}),
+    ],
+    ids=["standalone", "bundled", "explicit-pin", "compiler-style"],
+)
+def test_standalone_manager_is_provisioned_from_manager_field(
+    scope: Mapping[str, Mapping[str, str]], expected: Mapping[str, str]
+) -> None:
     """A standalone manager such as pnpm, yarn, bun, or uv is auto-added to conda deps.
 
     The `manager` field alone is enough, while a bundled manager, a compiler-style manager, and
     an explicit pin are all left untouched.
     """
-    pnpm = Scope.model_validate({"deps": {"nodejs": "*"}, "nodejs": {"manager": "pnpm"}})
-    assert pnpm.tables({})["dependencies"] == {"nodejs": "*", "pnpm": "*"}
-
-    npm = Scope.model_validate({"deps": {"nodejs": "*"}, "nodejs": {"manager": "npm"}})
-    assert npm.tables({})["dependencies"] == {"nodejs": "*"}
-
-    pinned = Scope.model_validate(
-        {"deps": {"nodejs": "*", "pnpm": ">=10"}, "nodejs": {"manager": "pnpm"}}
-    )
-    assert pinned.tables({})["dependencies"] == {"nodejs": "*", "pnpm": ">=10"}
-
-    compiler = Scope.model_validate({"deps": {"zig": "*"}, "zig": {"manager": "zig"}})
-    assert compiler.tables({})["dependencies"] == {"zig": "*"}
+    assert Scope.model_validate(scope).tables({})["dependencies"] == expected

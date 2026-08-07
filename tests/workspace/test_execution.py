@@ -178,7 +178,7 @@ def test_x_exits_with_the_inner_code(tmp_path: Path, monkeypatch: pytest.MonkeyP
     """`chefe x` preserves a failing ephemeral command's exit status."""
     monkeypatch.setattr(PixiEngine, "exec", lambda self, specs, args: 13)
     with pytest.raises(SystemExit) as exit_info:
-        PackageManager(tmp_path).execution.x("ruff")
+        PackageManager(root=tmp_path).execution.x("ruff")
     assert exit_info.value.code == 13
 
 
@@ -188,5 +188,5 @@ def test_x_runs_ephemeral(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> No
     monkeypatch.setattr(
         PixiEngine, "exec", lambda self, specs, args: bool(seen.append((specs, args)))
     )
-    PackageManager(tmp_path).execution.x("ruff", "check", ".", with_=("ruff",))
+    PackageManager(root=tmp_path).execution.x("ruff", "check", ".", with_=("ruff",))
     assert seen == [(("ruff",), ("ruff", "check", "."))]

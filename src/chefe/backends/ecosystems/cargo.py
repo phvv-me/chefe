@@ -4,23 +4,21 @@ from pathlib import Path
 
 from ...core import Installed, is_satisfied
 from ...manifest import Spec
-from ..base.tool import Tool
 from ..pixi import Pixi
 
 
-class Cargo(Tool):
+class Cargo:
     """The cargo backend: crates install into the pixi env prefix, so they share its PATH.
 
-    cargo lives inside the pixi env, so every command runs through `pixi run cargo`,
-    pinned to the env being synced so an env-scoped rust toolchain resolves correctly.
+    cargo lives inside the pixi env rather than on PATH, so every command runs through
+    `pixi run cargo`, pinned to the env being synced so an env-scoped rust toolchain resolves
+    correctly. That is the whole of what this backend needs, so it holds a `Pixi` rather than
+    deriving from `Tool`: it names no binary, builds no argv, and guards nothing, which is
+    exactly the machinery `Tool` exists to provide.
     """
 
-    def __init__(self, out: Path, pixi: Pixi) -> None:
-        self.out = out
+    def __init__(self, pixi: Pixi) -> None:
         self.pixi = pixi
-
-    def __call__(self, verb: str, *args: str, **flags: bool | str | None) -> None:
-        self.pixi("run", "cargo", verb, *args, **flags)
 
     @staticmethod
     def install_args(spec: Spec) -> list[str]:
@@ -58,6 +56,10 @@ class Cargo(Tool):
         """The pixi env prefix; crates install here so they share the env's activated PATH."""
         return self.pixi.env_prefix(env)
 
+    def run(self, verb: str, *args: str, **flags: bool | str | None) -> None:
+        """Run one cargo ``verb`` through the pixi env that owns the rust toolchain."""
+        self.pixi("run", "cargo", verb, *args, **flags)
+
     def sync(self, env: str, declared: dict[str, Spec]) -> None:
         """Make ``env``'s crates match ``declared``: install missing or drifted, drop removed."""
         self._reconcile(env, declared)
@@ -71,7 +73,7 @@ class Cargo(Tool):
         prefix = str(self.root(env))
         have = self.installed(env)
         for name in have.keys() - declared.keys():
-            self("uninstall", "--root", prefix, name, environment=env)
+            self.run("uninstall", "--root", prefix, name, environment=env)
         for name, spec in declared.items():
             current = have.get(name)
             if (
@@ -81,7 +83,7 @@ class Cargo(Tool):
             ):
                 continue
             reinstall = ("--force",) if current is not None else ()
-            self(
+            self.run(
                 "install",
                 "--root",
                 prefix,

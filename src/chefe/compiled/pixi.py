@@ -11,6 +11,8 @@ from .platforms import PlatformMatrix
 # one of these specs, never at the dep-name level.
 _DEP_TABLES = ("dependencies", "pypi-dependencies")
 
+_PLATFORMS = "platforms"
+
 
 def _reroot_source(spec: Toml) -> Toml:
     """A single dep spec with a repo-relative local ``path`` source shifted up one level.
@@ -116,7 +118,7 @@ class PixiManifest(Model):
         return {
             **env.feature(indexes),
             **(
-                {"platforms": platforms.environments[name]}
+                {_PLATFORMS: platforms.environments[name]}
                 if name in platforms.environments
                 else {}
             ),
@@ -149,7 +151,7 @@ class PixiManifest(Model):
             for name, env in m.envs.items()
         }
         owned: dict[str, Toml] = {
-            **({"chefe-platforms": {"platforms": platforms.default}} if platforms.default else {}),
+            **({"chefe-platforms": {_PLATFORMS: platforms.default}} if platforms.default else {}),
             **({"dev": dev} if (dev := m.dev.tables(indexes)) else {}),
         }
         feature.update(owned)
@@ -169,7 +171,7 @@ class PixiManifest(Model):
                 "name": m.workspace.name,
                 "version": m.workspace.version,
                 "channels": m.workspace.channels,
-                "platforms": platforms.workspace,
+                _PLATFORMS: platforms.workspace,
             },
             "activation": cls.activation_table(m),
             **m.tables(indexes),
@@ -184,5 +186,5 @@ class PixiManifest(Model):
     def to_toml(self) -> str:
         """Render to `pixi.toml` text (hyphenated table names via the field aliases)."""
         body = self.model_dump(by_alias=True, exclude_defaults=True)
-        body["workspace"]["platforms"] = self.platform_array(body["workspace"]["platforms"])
+        body["workspace"][_PLATFORMS] = self.platform_array(body["workspace"][_PLATFORMS])
         return tomlkit.dumps(body)

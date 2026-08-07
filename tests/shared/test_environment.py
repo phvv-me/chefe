@@ -53,7 +53,7 @@ def test_global_add_remove_and_list_use_workspace_default(
 
     manager.glob.add("ripgrep")
     manager.glob.remove("ripgrep", env="tools")
-    manager.glob.list("rip", env="tools", json=True)
+    manager.glob.show("rip", env="tools", json=True)
 
     assert seen == [
         ("add", "w", ("ripgrep",), ""),

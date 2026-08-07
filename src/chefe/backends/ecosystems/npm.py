@@ -51,9 +51,10 @@ class Node(Tool):
             *self.out.glob("node_modules/@*/*/package.json"),
         )
         found = (json.loads(m.read_text()) for m in manifests)
-        # Linked workspace stubs may omit name or version; they are not installed packages.
         return {
             data["name"]: Installed(version=data["version"], kind="npm")
             for data in found
+            # Linked workspace stubs may omit name or version; they are not installed packages,
+            # and this test is what keeps the indexing above total.
             if "name" in data and "version" in data
         }

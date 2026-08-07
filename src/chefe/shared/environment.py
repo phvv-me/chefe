@@ -1,4 +1,4 @@
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import Annotated
 
@@ -7,11 +7,13 @@ from rich.console import Console
 
 from ..backends import PixiGlobal
 from ..core import ChefeError
-from ..manifest import Manifest, Spec
+from ..manifest import Manifest, Spec, ToolchainSpec
 from ..report import markup
+from .stage import SecondStage
 
-# `chefe global add -l <lang>` aliases: the runtime name a user types, and the ecosystem name
-# of the backend it routes to. Both the runtime (`nodejs`) and the ecosystem (`npm`) resolve here.
+# Both the familiar runtime name (`nodejs`) and its exact ecosystem name (`npm`) resolve to the
+# same value, so either spelling routes to the same backend; the values double as `_RUNTIMES`'
+# keys below.
 _LANGUAGES = {
     "conda": "conda",
     "python": "pypi",
@@ -123,46 +125,22 @@ class GlobalEnv:
     def install(self, name: str = "") -> None:
         """Install every language/toolchain's declared deps into one shared global pixi env.
 
-        Conda goes through `pixi global`; adapters then use binaries from that global env for
-        languages that need a second install step, such as Python, Node.js, and Rust.
+        Conda goes through `pixi global` first, since every second-stage runtime is itself a conda
+        package, then each toolchain in `_second_stages` installs its own deps with the env's own
+        pip/npm/cargo. A toolchain the manifest never declares, or declares without deps, is
+        skipped rather than provisioned empty.
         """
         manifest = self.load()
         name = name or manifest.workspace.name
         toolchains = manifest.toolchains()
-        self.pixi.install(name, [self.spec(pkg, dep) for pkg, dep in manifest.deps.items()])
 
+        self.pixi.install(name, self._spec_list(manifest.deps))
         prefix = self.pixi.prefix(name)
-        if (python := toolchains.get("python")) and python.all_deps():
-            self.pixi.pip(prefix, [self.spec(p, d) for p, d in python.all_deps().items()])
-        if (nodejs := toolchains.get("nodejs")) and nodejs.all_deps():
-            self.pixi.npm(prefix, [self.pinned(p, d) for p, d in nodejs.all_deps().items()])
-        if (rust := toolchains.get("rust")) and rust.all_deps():
-            self.pixi.cargo(prefix, list(rust.all_deps()))
+        for stage in self._second_stages():
+            if (declared := toolchains.get(stage.toolchain)) and declared.all_deps():
+                stage.install(prefix, stage.specs(declared.all_deps()))
 
-        total = sum(
-            len(group)
-            for group in (
-                manifest.deps,
-                *(toolchain.all_deps() for toolchain in toolchains.values()),
-            )
-        )
-        self.console.print(
-            markup(t"[green]installed[/green] {total} deps into [bold]{name}[/bold]")
-        )
-
-    def list(
-        self,
-        regex: str = "",
-        env: Annotated[
-            str,
-            Parameter(name=("--environment", "-e"), help="Show packages inside one global env."),
-        ] = "",
-        *,
-        json: bool = False,
-        sort_by: str = "",
-    ) -> None:
-        """Show installed global envs, or packages inside one global env."""
-        self.pixi.show(env, regex=regex, json=json, sort_by=sort_by)
+        self.console.print(self._install_summary(name, manifest.deps, toolchains))
 
     def remove(
         self,
@@ -183,3 +161,52 @@ class GlobalEnv:
         self.console.print(
             markup(t"[green]removed[/green] {', '.join(packages)} from [bold]{name}[/bold]")
         )
+
+    def show(
+        self,
+        regex: str = "",
+        env: Annotated[
+            str,
+            Parameter(name=("--environment", "-e"), help="Show packages inside one global env."),
+        ] = "",
+        *,
+        json: bool = False,
+        sort_by: str = "",
+    ) -> None:
+        """Show installed global envs, or packages inside one global env."""
+        self.pixi.show(env, regex=regex, json=json, sort_by=sort_by)
+
+    def _crate_list(self, deps: Mapping[str, Spec]) -> list[str]:
+        """Crate names for `deps`, since a global `cargo install` carries no version pin."""
+        return list(deps)
+
+    def _install_summary(
+        self, name: str, deps: Mapping[str, Spec], toolchains: Mapping[str, ToolchainSpec]
+    ) -> str:
+        """Markup reporting how many deps, across conda plus every toolchain, went into `name`."""
+        total = sum(
+            len(group)
+            for group in (deps, *(toolchain.all_deps() for toolchain in toolchains.values()))
+        )
+        return markup(t"[green]installed[/green] {total} deps into [bold]{name}[/bold]")
+
+    def _pinned_list(self, deps: Mapping[str, Spec]) -> list[str]:
+        """npm-style spec strings for `deps`, in the form `npm install -g` expects."""
+        return [self.pinned(pkg, dep) for pkg, dep in deps.items()]
+
+    def _second_stages(self) -> tuple[SecondStage, ...]:
+        """Every toolchain chefe installs after conda, in the order they must install in.
+
+        Conda provides each of these runtimes, so all of them run after it, and the declared order
+        here is the install order. A new toolchain joins by adding its `PixiGlobal` installer and
+        one entry below, rather than by editing `install`.
+        """
+        return (
+            SecondStage("python", self.pixi.pip, self._spec_list),
+            SecondStage("nodejs", self.pixi.npm, self._pinned_list),
+            SecondStage("rust", self.pixi.cargo, self._crate_list),
+        )
+
+    def _spec_list(self, deps: Mapping[str, Spec]) -> list[str]:
+        """Conda-style spec strings for `deps`, in the form `pixi global install` expects."""
+        return [self.spec(pkg, dep) for pkg, dep in deps.items()]

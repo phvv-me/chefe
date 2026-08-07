@@ -239,7 +239,7 @@ def test_load_reports_user_errors(tmp_path: Path, text: str | None, match: str) 
     if text is not None:
         (tmp_path / "chefe.toml").write_text(text)
     with pytest.raises(ChefeError, match=match):
-        PackageManager(tmp_path).workspace.load()
+        PackageManager(root=tmp_path).workspace.load()
 
 
 def test_remove_drops_from_manifest(

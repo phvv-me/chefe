@@ -21,7 +21,9 @@ _GLOBAL_ADD_ARGV = {
 
 def succeeds(app: App, argv: list[str]) -> None:
     """Run ``argv`` through ``app`` and assert the CLI ended successfully."""
-    with pytest.raises(SystemExit) as exit_info:  # cyclopts exits 0 on success
+    # cyclopts always raises SystemExit on a run, success or failure, so success can only be
+    # told apart from failure by inspecting the exit code it carries.
+    with pytest.raises(SystemExit) as exit_info:
         app(argv)
     assert exit_info.value.code in (0, None)
 
@@ -60,7 +62,7 @@ def test_global_add_language_routes_to_the_right_backend(
     binary = str(prefix / "bin" / tool)
     existing_global_env(fp, tool_paths["pixi"], name="life")
     fp.register([binary, fp.any()], stdout="")
-    app = build(PackageManager(tmp_path))
+    app = build(PackageManager(root=tmp_path))
     with pytest.raises(SystemExit) as exit_info:
         app(["global", "add", "typescript", "-l", language])
     assert exit_info.value.code in (0, None)
@@ -79,7 +81,7 @@ def test_global_add_pypi_routes_to_env_pip(
     python = str(tmp_path / "pixi" / "envs" / "life" / "bin" / "python")
     existing_global_env(fp, tool_paths["pixi"], name="life")
     fp.register([python, fp.any()], stdout="")
-    app = build(PackageManager(tmp_path))
+    app = build(PackageManager(root=tmp_path))
     with pytest.raises(SystemExit) as exit_info:
         app(["global", "add", "ruff", "-l", "python"])
     assert exit_info.value.code in (0, None)
@@ -111,7 +113,7 @@ def test_global_add_conda_targets_the_workspace_env_with_the_verb_its_state_allo
     conda_workspace(tmp_path)
     register(fp, tool_paths["pixi"])
     fp.register([tool_paths["pixi"], fp.any()], stdout="")
-    succeeds(build(PackageManager(tmp_path)), ["global", "add", "ripgrep"])
+    succeeds(build(PackageManager(root=tmp_path)), ["global", "add", "ripgrep"])
     assert list(fp.calls[-1]) == [
         tool_paths["pixi"],
         "global",
@@ -130,7 +132,7 @@ def test_global_add_multiple_packages_in_one_call(
     conda_workspace(tmp_path)
     existing_global_env(fp, tool_paths["pixi"], name="life")
     fp.register([tool_paths["pixi"], fp.any()], stdout="")
-    app = build(PackageManager(tmp_path))
+    app = build(PackageManager(root=tmp_path))
     with pytest.raises(SystemExit):
         app(["global", "add", "ripgrep", "fd-find", "bat"])
     assert list(fp.calls[-1])[-3:] == ["ripgrep", "fd-find", "bat"]
@@ -141,7 +143,7 @@ def test_global_add_unknown_language_is_a_clean_error(
 ) -> None:
     """An unsupported `-l` value fails with a listing of valid languages, not a pixi crash."""
     conda_workspace(tmp_path)
-    app = build(PackageManager(tmp_path))
+    app = build(PackageManager(root=tmp_path))
     with pytest.raises(SystemExit) as exit_info:
         app(["global", "add", "ripgrep", "-l", "haskell"])
     assert exit_info.value.code == 1
@@ -163,7 +165,7 @@ def test_global_add_runtime_language_provisions_missing_env(
     empty_global_env(fp, tool_paths["pixi"])
     fp.register([tool_paths["pixi"], fp.any()], stdout="")
     fp.register([npm, fp.any()], stdout="")
-    succeeds(build(PackageManager(tmp_path)), ["global", "add", "typescript", "-l", "nodejs"])
+    succeeds(build(PackageManager(root=tmp_path)), ["global", "add", "typescript", "-l", "nodejs"])
 
     calls = [list(call) for call in fp.calls]
     assert [tool_paths["pixi"], "global", "install", "--environment", "life", "nodejs"] in calls
@@ -175,7 +177,7 @@ def test_global_add_without_packages_is_a_clean_error(
 ) -> None:
     """`chefe global add` with no package names fails with usage, not an empty pixi call."""
     conda_workspace(tmp_path)
-    app = build(PackageManager(tmp_path))
+    app = build(PackageManager(root=tmp_path))
     with pytest.raises(SystemExit) as exit_info:
         app(["global", "add"])
     assert exit_info.value.code == 1

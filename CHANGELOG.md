@@ -4,6 +4,17 @@ All notable changes to chefe are documented here.
 
 The format follows Keep a Changelog, and releases are cut from the version in `pyproject.toml`.
 
+## 0.0.28
+
+### Fixed
+
+- The generated `.chefe/dotenv.sh` loader no longer lets `.env` file values clobber variables
+  the shell already exported. `set -a` sourcing gave the file the same precedence as
+  `python-dotenv` or `docker-compose` deny, and it silently overrode an already-set variable
+  (an embedder configuration got redirected this way). The loader now snapshots the exported
+  environment with `export -p` before sourcing `.env`, then re-sources that snapshot afterward
+  so a pre-existing export wins while a variable the file introduces still lands.
+
 ## 0.0.27
 
 ### Fixed

@@ -121,18 +121,11 @@ class DependencyCommands:
         if language == "conda":
             return
         scope = manifest if not env else manifest.envs.get(env)
-        table = "[deps]" if not env else f"[envs.{env}.deps]"
         if scope is None:
-            raise ChefeError(
-                f"Environment `{env}` does not exist. "
-                f'Declare `{language} = "*"` under {table} before using `-l {language}`.'
-            )
+            raise ChefeError(self._missing_env_message(language, env=env))
         declared = set(scope.deps) | set(manifest.deps)
         if Runtimes.providers(language).isdisjoint(declared):
-            raise ChefeError(
-                f"Language `{language}` is not declared in {table}. "
-                f'Add `{language} = "*"` there before using `-l {language}`.'
-            )
+            raise ChefeError(self._undeclared_language_message(language, env=env))
 
     def tree(
         self, env: str = "default", plan: Annotated[bool, Parameter(name="--plan")] = False
@@ -172,4 +165,25 @@ class DependencyCommands:
                 t"[green]upgraded[/green] every ecosystem in env "
                 t"[bold]{env}[/bold] within constraints"
             )
+        )
+
+    @staticmethod
+    def _deps_table(env: str) -> str:
+        """The manifest table a language would be declared under for `env`."""
+        return "[deps]" if not env else f"[envs.{env}.deps]"
+
+    def _missing_env_message(self, language: str, *, env: str) -> str:
+        """Error text for `-l <language>` naming an environment that does not exist."""
+        table = self._deps_table(env)
+        return (
+            f"Environment `{env}` does not exist. "
+            f'Declare `{language} = "*"` under {table} before using `-l {language}`.'
+        )
+
+    def _undeclared_language_message(self, language: str, *, env: str) -> str:
+        """Error text for `-l <language>` whose provider is missing from its scope."""
+        table = self._deps_table(env)
+        return (
+            f"Language `{language}` is not declared in {table}. "
+            f'Add `{language} = "*"` there before using `-l {language}`.'
         )

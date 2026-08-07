@@ -4,6 +4,7 @@ from pathlib import Path
 
 import pytest
 from faker import Faker
+from plumbum import local
 
 from chefe.core import ChefeError
 from chefe.manager import PackageManager
@@ -20,7 +21,7 @@ def test_manager_root_is_absolute(monkeypatch: pytest.MonkeyPatch, tmp_path: Pat
     a relative npm path would break after a cwd change.
     """
     monkeypatch.chdir(tmp_path)
-    manager = PackageManager(Path("project"))
+    manager = PackageManager(root=Path("project"))
     assert manager.workspace.root.is_absolute()
     assert manager.workspace.root == tmp_path / "project"
     assert manager.workspace.manifest.is_absolute() and manager.workspace.out.is_absolute()
@@ -29,7 +30,7 @@ def test_manager_root_is_absolute(monkeypatch: pytest.MonkeyPatch, tmp_path: Pat
 def test_init_scaffolds_then_is_idempotent(tmp_path: Path, faker_instance: Faker) -> None:
     """init writes a starter manifest once and leaves an existing one untouched."""
     project, other = faker_instance.word(), faker_instance.word()
-    manager = PackageManager(tmp_path)
+    manager = PackageManager(root=tmp_path)
     manager.environment.init(project)
     text = (tmp_path / "chefe.toml").read_text()
     assert f'name = "{project}"' in text and "[deps]" in text
@@ -366,7 +367,40 @@ def test_sync_writes_the_dotenv_loader_only_when_enabled(*, tmp_path: Path, dote
         f'[workspace]\nname = "w"\nplatforms = ["linux-64"]\ndotenv = {str(dotenv).lower()}\n'
         '\n[deps]\npython = "*"\n'
     )
-    manager = PackageManager(tmp_path)
+    manager = PackageManager(root=tmp_path)
     manager.environment.sync()
     assert (manager.workspace.out / "dotenv.sh").exists() is dotenv
     assert ('"dotenv.sh"' in manager.pixi.manifest.read_text()) is dotenv
+
+
+def test_dotenv_loader_states_its_precedence_rule(workspace: Workspace) -> None:
+    """The generated loader snapshots the exported environment before sourcing `.env`.
+
+    That snapshot is what lets a pre-existing export win over a value the file carries, so its
+    presence (and the one-line rule comment) is pinned here as the behavioral contract.
+    """
+    manager = workspace('[deps]\npython = "*"\n')
+    manager.environment.sync()
+    script = (manager.workspace.out / "dotenv.sh").read_text()
+    assert "already exported in the shell wins" in script
+    assert 'export -p > "$snapshot"' in script
+    assert '. "$snapshot" 2>/dev/null || true' in script
+
+
+def test_dotenv_loader_lets_the_shell_win_and_fills_gaps_from_the_file(
+    workspace: Workspace,
+) -> None:
+    """A pre-exported var survives sourcing `.env`; an unset var is filled in from the file.
+
+    This runs the generated script under a real bash, since the precedence trick (snapshot,
+    source, restore) is only proven correct by executing it, not by reading its text.
+    """
+    manager = workspace('[deps]\npython = "*"\n')
+    manager.environment.sync()
+    (manager.workspace.root / ".env").write_text(
+        'EXISTING_VAR="from dotenv file"\nNEW_VAR="from dotenv file"\n'
+    )
+    probe = 'source ./dotenv.sh; printf "%s|%s" "$EXISTING_VAR" "$NEW_VAR"'
+    with local.cwd(manager.workspace.out), local.env(EXISTING_VAR="from shell"):
+        output = local["bash"]["-c", probe]()
+    assert output == "from shell|from dotenv file"

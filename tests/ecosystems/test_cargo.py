@@ -11,7 +11,7 @@ from chefe.manifest import Spec
 
 def test_cargo_installed_parses_crates_toml(tmp_path: Path) -> None:
     """`installed` reads versions from `.crates.toml`, and an absent file yields nothing."""
-    cargo = Cargo(tmp_path, Pixi(tmp_path))
+    cargo = Cargo(Pixi(tmp_path))
     root = cargo.root("default")
     root.mkdir(parents=True)
     (root / ".crates.toml").write_text('[v1]\n"ripgrep 14.1.0 (registry+https://x)" = ["rg"]\n')
@@ -27,7 +27,7 @@ def test_cargo_installed_skips_malformed_crate_keys(tmp_path: Path) -> None:
     past the split's end and raise `IndexError`, taking down `chefe tree` and `chefe install`
     on an otherwise healthy env. The malformed entry is now dropped and the good one survives.
     """
-    cargo = Cargo(tmp_path, Pixi(tmp_path))
+    cargo = Cargo(Pixi(tmp_path))
     root = cargo.root("default")
     root.mkdir(parents=True)
     (root / ".crates.toml").write_text(
@@ -85,7 +85,7 @@ def test_cargo_update_refreshes_even_satisfied_crates(
 ) -> None:
     """update forces retained crates through Cargo so compatible releases are not skipped."""
     pixi = Pixi(tmp_path)
-    cargo = Cargo(tmp_path, pixi)
+    cargo = Cargo(pixi)
     mocker.patch.object(
         Cargo,
         "installed",

@@ -40,7 +40,7 @@ def workspace(tmp_path: Path):
 
     def make(body: str = "") -> PackageManager:
         write_manifest(tmp_path, body)
-        return PackageManager(tmp_path)
+        return PackageManager(root=tmp_path)
 
     return make
 
@@ -55,7 +55,7 @@ def locked_workspace(tmp_path: Path):
 
     def make(text: str, *, env: str = "default") -> tuple[PackageManager, str]:
         (tmp_path / "chefe.toml").write_text(text)
-        manager = PackageManager(tmp_path)
+        manager = PackageManager(root=tmp_path)
         manager.environment.sync(env)
         manager.pixi.lock.write_text("version: 7\n")
         return manager, manager.pixi.manifest.read_text()
@@ -129,9 +129,9 @@ def pixi(tmp_path: Path) -> Pixi:
 
 
 @pytest.fixture
-def cargo(tmp_path: Path, pixi: Pixi) -> Cargo:
+def cargo(pixi: Pixi) -> Cargo:
     """A Cargo backend installing into the same workspace's pixi env."""
-    return Cargo(tmp_path, pixi)
+    return Cargo(pixi)
 
 
 @pytest.fixture
@@ -153,15 +153,21 @@ def pixi_calls(mocker: MockerFixture) -> list[tuple[str, ...]]:
 def recording_backends(mocker: MockerFixture) -> list[tuple[str, ...]]:
     """Replace every subprocess seam with a recorder of `(Backend, verb, *flags, *args)`.
 
-    Returns the shared call list so a test can assert exactly which argv the manager built,
-    while the real tools are never invoked. Every backend's `__call__` and pixi's exit-code
-    sibling share one recorder, so the list is a single cross-backend, ordered, flag-normalized
-    view of every invocation. `Node` is the base for every JS driver (npm/pnpm/yarn/aube), so
-    patching it once records whichever one a manifest selects, under its own class name.
+    Returns the shared call list so a test can assert exactly which argv the manager built, while
+    the real tools are never invoked. `seams` names every patched entry point in one table, and
+    the run seams share one recorder, so the list is a single cross-backend, ordered,
+    flag-normalized view of every invocation. `Node` is the base for every JS driver
+    (npm/pnpm/yarn/aube), so patching it once records whichever one a manifest selects, under its
+    own class name.
     """
     calls: list[tuple[str, ...]] = []
 
-    def record(self: Tool, verb: str, *args: str, **flags: bool | str | None) -> bool:
+    def record(
+        self: Pixi | Node | Cargo | PixiGlobal,
+        verb: str,
+        *args: str,
+        **flags: bool | str | None,
+    ) -> bool:
         calls.append((type(self).__name__, verb, *Tool.flags(**flags), *args))
         return True
 
@@ -185,6 +191,10 @@ def recording_backends(mocker: MockerFixture) -> list[tuple[str, ...]]:
         return 0
 
     seams = [
+        (Pixi, "__call__", record),
+        (Node, "__call__", record),
+        # Cargo owns no binary and runs through `pixi run cargo`, so its seam is `run`.
+        (Cargo, "run", record),
         (Pixi, "exit_code", record_code),
         (Pixi, "launch", record_launch),
         (Pixi, "enter", record_enter),
@@ -194,10 +204,9 @@ def recording_backends(mocker: MockerFixture) -> list[tuple[str, ...]]:
         # backend-only test never shells out to a real pixi.
         (Pixi, "shell_hook", lambda self, env="default": ""),
         (Cargo, "sync", lambda self, env, declared: calls.append(("Cargo", "sync"))),
+        # No backend reports anything already provisioned, so every test starts from empty.
+        *((backend, "installed", lambda self, env: {}) for backend in (Pixi, Node, Cargo)),
     ]
-    for backend in (Pixi, Node, Cargo):
-        mocker.patch.object(backend, "__call__", side_effect=record, autospec=True)
-        mocker.patch.object(backend, "installed", side_effect=lambda self, env: {}, autospec=True)
     for owner, seam, recorder in seams:
         mocker.patch.object(owner, seam, side_effect=recorder, autospec=True)
     return calls

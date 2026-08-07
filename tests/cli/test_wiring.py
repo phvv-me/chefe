@@ -74,7 +74,7 @@ def test_cli_delegates_to_manager(argv: list[str], method: str) -> None:
     """Every command parses and forwards exactly once to its manager method."""
     seen: list[str] = []
     app = build(recording_manager(seen))
-    with pytest.raises(SystemExit) as exit_info:  # cyclopts exits 0 on success
+    with pytest.raises(SystemExit) as exit_info:
         app(argv)
     assert exit_info.value.code in (0, None)
     assert seen == [method]
@@ -89,7 +89,7 @@ def test_cli_prints_chefe_errors(tmp_path: Path, capsys: pytest.CaptureFixture[s
         python = "*"
         """,
     )
-    app = build(PackageManager(tmp_path))
+    app = build(PackageManager(root=tmp_path))
     with pytest.raises(SystemExit) as exit_info:
         app(["add", "ripgrep", "-l", "rust"])
     assert exit_info.value.code == 1
@@ -131,7 +131,7 @@ def test_failing_commands_exit_non_zero_with_the_error_on_stderr(
     """
     if body is not None:
         write_manifest(tmp_path, body)
-    app = build(PackageManager(tmp_path))
+    app = build(PackageManager(root=tmp_path))
 
     with pytest.raises(SystemExit) as exit_info:
         app(argv)
@@ -150,7 +150,7 @@ def test_install_that_provisions_exits_zero_with_a_clean_failure_channel(
 ) -> None:
     """The succeeding half of the same contract: a real install ends green and says nothing."""
     write_manifest(tmp_path, '[deps]\npython = "*"\n')
-    app = build(PackageManager(tmp_path))
+    app = build(PackageManager(root=tmp_path))
 
     with pytest.raises(SystemExit) as exit_info:
         app(["install"])
@@ -228,7 +228,7 @@ def test_completions_command_prints_a_shell_script(
     emits its native completion to stdout, so a user pipes it where their shell expects.
     """
     conda_workspace(tmp_path)
-    app = build(PackageManager(tmp_path))
+    app = build(PackageManager(root=tmp_path))
     with pytest.raises(SystemExit) as exit_info:
         app(["completions", "zsh"])
     assert exit_info.value.code in (0, None)

@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "chefe"
-version = "0.0.27"
+version = "0.0.28"
 description = "One manifest for every package manager | conda, Python, Node.js, Rust & more, behind a single file."
 readme = "README.md"
 requires-python = ">=3.14"
@@ -151,6 +151,13 @@ reasoning_effort = "high"
 [tool.mcmr.rules."ALL-CLAS0004"]
 exclude = ["src/chefe/compiled/pixi.py", "src/chefe/manifest/schema/root/manifest.py"]
 
+# `Pixi` and `Node` are template-method subtypes of `Tool`, the shape this rule calls `subtype`:
+# each sets `name`, overrides a declared hook (`scope`, or `available`/`cwd`), and inherits
+# `__call__`, so `Tool.within_cwd` builds their whole argv. `Cargo` was converted to composition
+# precisely because it used none of that, which is the line a new occurrence has to argue past.
+[tool.mcmr.rules."ALL-CLAS1001"]
+exclude = ["src/chefe/backends/pixi/workspace.py", "src/chefe/backends/ecosystems/npm.py"]
+
 # `tomlkit.parse` is the round-trip TOML boundary each editing seam calls directly. Wrapping it
 # would create the pass-through ALL-FUNC0005 rejects, so the call stays where a reader expects it.
 [tool.mcmr.rules."ALL-DEPE0003"]
@@ -178,3 +185,18 @@ exclude = ["hooks/llms.py"]
 # is. There is no capability to depend on at that boundary.
 [tool.mcmr.rules."PY-INTE0001"]
 exclude = ["src/chefe/compiled/pixi.py"]
+
+# GitHub requires a composite action at `.github/actions/<name>/action.yml`, so with today's one
+# action, `.github/actions` leads to a single child directory. The layout is fixed by the platform,
+# not a navigation step we chose, and it stays a pure pass-through as more actions join `setup`.
+[tool.mcmr.rules."ALL-FILE0004"]
+exclude = [".github/actions"]
+
+# A test states the same fixture path/module/rule identity per case, and naming it would move the
+# fixture away from the assertion that reads it.
+[tool.mcmr.rules."ALL-DUPL0005"]
+exclude = ["tests"]
+
+[tool.mcmr.providers.datahub]
+server = "http://localhost:8080"
+report_url = "https://github.com/phvv-me/mcmr"

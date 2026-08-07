@@ -11,8 +11,8 @@ from .core import ChefeError, Project
 from .manager import PackageManager
 from .report import markup
 
-# Shells cyclopts can emit a completion script for; the value chefe defaults to when a
-# user passes none is read from their login `$SHELL`.
+# Fixed to what `App.generate_completion` accepts, so `detect_shell` can check a candidate
+# against it and fall back to bash rather than ever handing cyclopts a shell it would reject.
 Shell = Literal["bash", "zsh", "fish"]
 _SHELLS: tuple[Shell, ...] = ("bash", "zsh", "fish")
 
@@ -140,7 +140,8 @@ def _register_global(glob: App, manager: PackageManager) -> None:
     glob.command(_handled(errors, manager.glob.install), name="install")
     glob.command(_handled(errors, manager.glob.add), name="add")
     glob.command(_handled(errors, manager.glob.remove), name="remove")
-    glob.command(_handled(errors, manager.glob.list), name="list")
+    # `show` rather than `list`, which would shadow the builtin for the rest of its class body.
+    glob.command(_handled(errors, manager.glob.show), name="list")
 
 
 def build(manager: PackageManager) -> App:

@@ -3,6 +3,8 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
 
+from pytest_subprocess import FakeProcess
+
 from chefe.manifest import Document
 
 # The platform is pinned because the host default would make generated manifests differ
@@ -33,6 +35,35 @@ def executable(directory: Path, name: str) -> Path:
     path.write_text("#!/bin/sh\n")
     path.chmod(0o755)
     return path
+
+
+def ecosystem_workspace(root: Path, fp: FakeProcess, pixi: str) -> Path:
+    """Declare conda, python, nodejs and rust deps under ``root`` and stub every binary they run.
+
+    Returns the global env prefix whose `bin/` holds the second-stage installers, so a caller can
+    assert against the exact argv each of them receives.
+    """
+    (root / "chefe.toml").write_text(
+        """[workspace]
+name = "demo"
+platforms = ["linux-64"]
+[deps]
+ripgrep = "*"
+python = "*"
+nodejs = "*"
+rust = "*"
+[python.deps]
+ruff = ">=0.6"
+[nodejs.deps]
+prettier = ">=3"
+[rust.deps]
+bat = "*"
+"""
+    )
+    prefix = root / "pixi" / "envs" / "demo"
+    for argv0 in (pixi, *(str(prefix / "bin" / tool) for tool in ("python", "npm", "cargo"))):
+        fp.register([argv0, fp.any()], stdout="")
+    return prefix
 
 
 def conda_workspace(root: Path) -> None:

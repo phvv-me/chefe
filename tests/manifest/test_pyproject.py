@@ -233,7 +233,7 @@ def test_from_pyproject_without_a_project_adds_no_python_deps() -> None:
 def test_load_dispatches_pyproject_and_manager_discovers_it(tmp_path: Path) -> None:
     """A `PackageManager` over a pyproject workspace loads it and syncs a pixi manifest."""
     write_pyproject(tmp_path)
-    manager = PackageManager(tmp_path)
+    manager = PackageManager(root=tmp_path)
     assert manager.workspace.manifest == tmp_path / "pyproject.toml"
     assert manager.workspace.load().workspace.name == "demo"
     manager.environment.sync()
@@ -264,6 +264,6 @@ def test_manifest_writers_refuse_a_pyproject_source(
 ) -> None:
     """`add`/`remove`/`upgrade` refuse to edit an embedded `[tool.chefe]`, pointing at the file."""
     write_pyproject(tmp_path)
-    manager = PackageManager(tmp_path)
+    manager = PackageManager(root=tmp_path)
     with pytest.raises(ChefeError, match="cannot edit the .* manifest inside pyproject.toml"):
         mutate(manager)

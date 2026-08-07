@@ -39,7 +39,7 @@ def test_run_passes_help_flags_through_to_the_target(
     """
     run_workspace(tmp_path)
     seen = recording_exit_code(monkeypatch)
-    app = build(PackageManager(tmp_path))
+    app = build(PackageManager(root=tmp_path))
     with pytest.raises(SystemExit) as exit_info:
         app(["run", "build", "--help"])
     assert exit_info.value.code in (0, None)
@@ -52,7 +52,7 @@ def test_run_resolve_flag_is_consumed_before_the_target(
     """`chefe run --resolve` permits solving without forwarding the flag to the task."""
     run_workspace(tmp_path)
     seen = recording_exit_code(monkeypatch)
-    app = build(PackageManager(tmp_path))
+    app = build(PackageManager(root=tmp_path))
 
     with pytest.raises(SystemExit) as exit_info:
         app(["run", "--resolve", "build"])
@@ -67,7 +67,7 @@ def test_run_without_a_target_still_prints_its_own_help(
 ) -> None:
     """A help flag with no task name keeps printing the run command's own page."""
     run_workspace(tmp_path)
-    app = build(PackageManager(tmp_path))
+    app = build(PackageManager(root=tmp_path))
     with pytest.raises(SystemExit) as exit_info:
         app(["run", *argv])
     assert exit_info.value.code in (0, None)
@@ -79,7 +79,7 @@ def test_run_without_a_target_still_prints_its_own_help(
 def test_root_help_is_untouched(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     """`chefe --help` still prints the app's own page listing the commands."""
     run_workspace(tmp_path)
-    app = build(PackageManager(tmp_path))
+    app = build(PackageManager(root=tmp_path))
     with pytest.raises(SystemExit) as exit_info:
         app(["--help"])
     assert exit_info.value.code in (0, None)
@@ -106,7 +106,7 @@ def test_run_env_flag_and_help_flag_both_reach_the_target(
         """,
     )
     seen = recording_exit_code(monkeypatch)
-    app = build(PackageManager(tmp_path))
+    app = build(PackageManager(root=tmp_path))
     with pytest.raises(SystemExit) as exit_info:
         app(["run", "-e", "gpu", "build", "--help"])
     assert exit_info.value.code in (0, None)

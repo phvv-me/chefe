@@ -1,10 +1,10 @@
-from dataclasses import dataclass
 from functools import cache, cached_property
 from pathlib import Path
 
 from rich.console import Console
 
 from .backends import Cargo, Pixi, PixiGlobal
+from .core import Model
 from .shared import GlobalEnv
 from .workspace import (
     DependencyCommands,
@@ -32,8 +32,7 @@ def _failures() -> Console:
     return Console(stderr=True)
 
 
-@dataclass(frozen=True)
-class PackageManager:
+class PackageManager(Model):
     """A workspace: one manifest, compiled into a generated env and run by the real tools.
 
     Nothing is done here. This wires the collaborators and exposes them as the four command
@@ -87,8 +86,7 @@ class PackageManager:
     @cached_property
     def runtime(self) -> Runtime:
         """Provisions a compiled env and keeps every ecosystem in it up to date."""
-        cargo = Cargo(self.workspace.out, self.pixi)
-        return Runtime(self.workspace, self.compiler, self.pixi, cargo, _reports())
+        return Runtime(self.workspace, self.compiler, self.pixi, Cargo(self.pixi), _reports())
 
     @cached_property
     def workspace(self) -> Workspace:

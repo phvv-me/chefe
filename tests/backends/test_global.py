@@ -10,6 +10,8 @@ from chefe.backends import Pixi, PixiEngine, PixiGlobal
 from chefe.core import ChefeError
 from chefe.manager import PackageManager
 
+from ..support.workspaces import ecosystem_workspace
+
 
 @pytest.mark.parametrize(
     ("call", "expected"),
@@ -40,30 +42,8 @@ def test_global_install_spans_all_ecosystems(
     fp: FakeProcess, tmp_path: Path, tool_paths: Mapping[str, str]
 ) -> None:
     """A global install reaches every language/toolchain: conda, then env pip/npm/cargo."""
-    (tmp_path / "chefe.toml").write_text(
-        """[workspace]
-name = "demo"
-platforms = ["linux-64"]
-[deps]
-ripgrep = "*"
-python = "*"
-nodejs = "*"
-rust = "*"
-[python.deps]
-ruff = ">=0.6"
-[nodejs.deps]
-prettier = ">=3"
-[rust.deps]
-bat = "*"
-"""
-    )
-    prefix = tmp_path / "pixi" / "envs" / "demo"
-    for argv0 in (
-        tool_paths["pixi"],
-        *(str(prefix / "bin" / t) for t in ("python", "npm", "cargo")),
-    ):
-        fp.register([argv0, fp.any()], stdout="")
-    PackageManager(tmp_path).glob.install()
+    prefix = ecosystem_workspace(tmp_path, fp, tool_paths["pixi"])
+    PackageManager(root=tmp_path).glob.install()
     cmds = [list(c) for c in fp.calls]
     conda = next(c for c in cmds if c[0] == tool_paths["pixi"])
     adapters = [
@@ -72,7 +52,10 @@ bat = "*"
         [str(prefix / "bin" / "cargo"), "install", "--root", str(prefix), "bat"],
     ]
     assert {"python", "nodejs", "rust", "ripgrep"} <= set(conda)
-    assert all(adapter in cmds for adapter in adapters)
+    # Conda provides all three runtimes, so it runs before them, and the second stages then run
+    # in their declared dependency order rather than merely all running.
+    assert [cmd for cmd in cmds if cmd in adapters] == adapters
+    assert cmds.index(conda) < cmds.index(adapters[0])
 
 
 @pytest.mark.parametrize(
