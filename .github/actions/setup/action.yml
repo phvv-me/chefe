@@ -33,9 +33,16 @@ inputs:
     description: >-
       The files whose contents decide whether the cached environment is still valid. The
       default covers a package that declares its dependencies in pyproject.toml. A repository
-      whose manifest is chefe.toml should pass that instead, and one with both should pass both.
+      whose manifest is chefe.toml should pass that instead. Use a brace glob such as
+      `{chefe.toml,pyproject.toml}` when both files shape the environment.
     required: false
     default: pyproject.toml
+  cache-paths:
+    description: >-
+      Additional project-local build directories to cache. Pass a newline-separated list for
+      native targets or other expensive outputs that are safe to restore with the environment.
+    required: false
+    default: ""
   resolve:
     description: >-
       Whether to solve when the lock does not match the manifest. Leave this false so a drifted
@@ -47,7 +54,7 @@ inputs:
 runs:
   using: composite
   steps:
-    - uses: astral-sh/setup-uv@v7
+    - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7
       with:
         python-version: ${{ inputs.python-version }}
 
@@ -67,15 +74,17 @@ runs:
     # so a dependency change correctly misses and rebuilds.
     - name: cache the solver and the solved environment
       if: inputs.mode == 'chefe'
-      uses: actions/cache@v4
+      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
         path: |
           ~/.pixi
           ~/.cache/rattler
           .chefe/.pixi
-        key: chefe-${{ runner.os }}-${{ hashFiles(inputs.cache-key-files) }}
+          ${{ inputs.cache-paths }}
+        key: chefe-${{ runner.os }}-${{ runner.arch }}-py${{ inputs.python-version }}-${{ hashFiles(inputs.cache-key-files) }}
         restore-keys: |
-          chefe-${{ runner.os }}-
+          chefe-${{ runner.os }}-${{ runner.arch }}-py${{ inputs.python-version }}-
+          chefe-${{ runner.os }}-${{ runner.arch }}-
 
     - name: install the environment
       if: inputs.mode == 'chefe'
