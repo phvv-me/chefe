@@ -37,7 +37,7 @@ same action in `uv` mode, so the tool versions and the checkout still live in on
 | `extras` | `dev` | `uv` mode only, space separated, becomes repeated `--extra` |
 | `python-version` | `3.14` | the project's `requires-python` floor differs |
 | `chefe-version` | `>=0.0.27` | pin exactly when the build must survive a chefe release |
-| `cache-key-files` | `{chefe.toml,pyproject.toml,.chefe/pixi.lock}` | narrow it when fewer files shape the environment |
+| `cache-key-files` | both manifests and the Chefe lock | pass one path per line and narrow it when fewer files shape the environment |
 | `cache-paths` | empty | newline-separated project build directories worth restoring |
 | `resolve` | `false` | only where the lock is deliberately not committed |
 

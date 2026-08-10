@@ -32,10 +32,13 @@ inputs:
   cache-key-files:
     description: >-
       The files whose contents decide whether the cached environment is still valid. The
-      default covers both supported project manifests and the solved Chefe lock. Narrow it when
-      only one file shapes the environment.
+      default covers both supported project manifests and the solved Chefe lock. Pass one path
+      per line and narrow the list when fewer files shape the environment.
     required: false
-    default: "{chefe.toml,pyproject.toml,.chefe/pixi.lock}"
+    default: |-
+      chefe.toml
+      pyproject.toml
+      .chefe/pixi.lock
   cache-paths:
     description: >-
       Additional project-local build directories to cache. Pass a newline-separated list for
@@ -67,6 +70,23 @@ runs:
         uv tool install "chefe${{ inputs.chefe-version }}"
         echo "$HOME/.local/bin" >> "$GITHUB_PATH"
 
+    - name: fingerprint the dependency inputs
+      if: inputs.mode == 'chefe'
+      id: dependency-inputs
+      shell: bash
+      env:
+        CACHE_KEY_FILES: ${{ inputs.cache-key-files }}
+      run: |
+        digest="$({
+          while IFS= read -r file; do
+            if [ -f "$file" ]; then
+              printf '%s\n' "$file"
+              git hash-object -- "$file"
+            fi
+          done <<< "$CACHE_KEY_FILES"
+        } | git hash-object --stdin)"
+        echo "digest=$digest" >> "$GITHUB_OUTPUT"
+
     # Three paths, because a cold run pays for all three. `~/.pixi` is the solver binary,
     # `~/.cache/rattler` is the downloaded package store shared across environments, and
     # `.chefe/.pixi` is this project's built environment. The key covers the manifests and
@@ -80,7 +100,7 @@ runs:
           ~/.cache/rattler
           .chefe/.pixi
           ${{ inputs.cache-paths }}
-        key: chefe-${{ runner.os }}-${{ runner.arch }}-py${{ inputs.python-version }}-tool${{ inputs.chefe-version }}-${{ hashFiles(inputs.cache-key-files) }}
+        key: chefe-${{ runner.os }}-${{ runner.arch }}-py${{ inputs.python-version }}-tool${{ inputs.chefe-version }}-${{ steps.dependency-inputs.outputs.digest }}
         restore-keys: |
           chefe-${{ runner.os }}-${{ runner.arch }}-py${{ inputs.python-version }}-tool${{ inputs.chefe-version }}-
           chefe-${{ runner.os }}-${{ runner.arch }}-
