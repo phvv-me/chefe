@@ -37,13 +37,14 @@ same action in `uv` mode, so the tool versions and the checkout still live in on
 | `extras` | `dev` | `uv` mode only, space separated, becomes repeated `--extra` |
 | `python-version` | `3.14` | the project's `requires-python` floor differs |
 | `chefe-version` | `>=0.0.27` | pin exactly when the build must survive a chefe release |
-| `cache-key-files` | `pyproject.toml` | pass `chefe.toml` or a brace glob such as `{chefe.toml,pyproject.toml}` |
+| `cache-key-files` | `{chefe.toml,pyproject.toml}` | narrow it when only one manifest shapes the environment |
 | `cache-paths` | empty | newline-separated project build directories worth restoring |
 | `resolve` | `false` | only where the lock is deliberately not committed |
 
-Cache keys include the operating system, architecture, Python version, and manifest content.
-This prevents one matrix entry from restoring an incompatible environment. The action pins its
-own upstream actions by commit while keeping readable version comments beside them.
+Cache keys include the operating system, architecture, Python version, Chefe version, and manifest
+content. This prevents a matrix entry or tool upgrade from restoring an incompatible environment.
+The action pins its own upstream actions by commit while keeping readable version comments beside
+them.
 
 ## On `resolve`
 

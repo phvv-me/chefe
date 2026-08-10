@@ -32,11 +32,10 @@ inputs:
   cache-key-files:
     description: >-
       The files whose contents decide whether the cached environment is still valid. The
-      default covers a package that declares its dependencies in pyproject.toml. A repository
-      whose manifest is chefe.toml should pass that instead. Use a brace glob such as
-      `{chefe.toml,pyproject.toml}` when both files shape the environment.
+      default covers both supported project manifests. Narrow it when only one file shapes the
+      environment.
     required: false
-    default: pyproject.toml
+    default: "{chefe.toml,pyproject.toml}"
   cache-paths:
     description: >-
       Additional project-local build directories to cache. Pass a newline-separated list for
@@ -70,8 +69,8 @@ runs:
 
     # Three paths, because a cold run pays for all three. `~/.pixi` is the solver binary,
     # `~/.cache/rattler` is the downloaded package store shared across environments, and
-    # `.chefe/.pixi` is this project's built environment. The key covers the manifest alone,
-    # so a dependency change correctly misses and rebuilds.
+    # `.chefe/.pixi` is this project's built environment. The key covers the manifests and
+    # Chefe version, so a dependency or installer change correctly misses and rebuilds.
     - name: cache the solver and the solved environment
       if: inputs.mode == 'chefe'
       uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
@@ -81,9 +80,9 @@ runs:
           ~/.cache/rattler
           .chefe/.pixi
           ${{ inputs.cache-paths }}
-        key: chefe-${{ runner.os }}-${{ runner.arch }}-py${{ inputs.python-version }}-${{ hashFiles(inputs.cache-key-files) }}
+        key: chefe-${{ runner.os }}-${{ runner.arch }}-py${{ inputs.python-version }}-tool${{ inputs.chefe-version }}-${{ hashFiles(inputs.cache-key-files) }}
         restore-keys: |
-          chefe-${{ runner.os }}-${{ runner.arch }}-py${{ inputs.python-version }}-
+          chefe-${{ runner.os }}-${{ runner.arch }}-py${{ inputs.python-version }}-tool${{ inputs.chefe-version }}-
           chefe-${{ runner.os }}-${{ runner.arch }}-
 
     - name: install the environment
