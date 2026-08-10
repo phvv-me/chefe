@@ -32,10 +32,10 @@ inputs:
   cache-key-files:
     description: >-
       The files whose contents decide whether the cached environment is still valid. The
-      default covers both supported project manifests. Narrow it when only one file shapes the
-      environment.
+      default covers both supported project manifests and the solved Chefe lock. Narrow it when
+      only one file shapes the environment.
     required: false
-    default: "{chefe.toml,pyproject.toml}"
+    default: "{chefe.toml,pyproject.toml,.chefe/pixi.lock}"
   cache-paths:
     description: >-
       Additional project-local build directories to cache. Pass a newline-separated list for
