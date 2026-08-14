@@ -8,6 +8,8 @@ The format follows Keep a Changelog, and releases are cut from the version in `p
 
 ### Fixed
 
+- Editable dependency override paths are now rerooted in generated Pixi manifests, and the
+  resolved environment is verified with Pixi's frozen mode so mutable sources remain usable.
 - The generated `.chefe/dotenv.sh` loader no longer lets `.env` file values clobber variables
   the shell already exported. `set -a` sourcing gave the file the same precedence as
   `python-dotenv` or `docker-compose` deny, and it silently overrode an already-set variable

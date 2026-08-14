@@ -1,5 +1,6 @@
 import json
 import os
+import tomllib
 from collections.abc import Generator, Sequence
 from contextlib import contextmanager
 from functools import cached_property
@@ -81,8 +82,31 @@ class Pixi(Tool):
                 "pixi.lock is missing. Run `chefe install --resolve` on a solve-capable "
                 "machine to create and verify the generated manifest/lock pair."
             )
-        locked = not resolve
-        return self.within_cwd(Process.stream, verb, *args, locked=locked)
+        return self.within_cwd(
+            Process.stream,
+            verb,
+            *args,
+            locked=not resolve and not self._has_editable_paths(),
+            frozen=not resolve and self._has_editable_paths(),
+        )
+
+    def _has_editable_paths(self) -> bool:
+        """Whether the generated manifest carries a mutable editable Python source."""
+        try:
+            manifest = tomllib.loads(self.manifest.read_text())
+        except FileNotFoundError:
+            return False
+
+        pending = [manifest]
+        while pending:
+            value = pending.pop()
+            if isinstance(value, dict):
+                if isinstance(value.get("path"), str) and value.get("editable") is True:
+                    return True
+                pending.extend(value.values())
+            elif isinstance(value, list):
+                pending.extend(value)
+        return False
 
     def exec(self, specs: Sequence[str], args: tuple[str, ...]) -> int:
         """Run ``args`` in a throwaway env, returning its exit code.

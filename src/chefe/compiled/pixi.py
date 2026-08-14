@@ -9,7 +9,7 @@ from .platforms import PlatformMatrix
 
 # pixi tables whose values are dependency specs; a ``path`` *source* lives inside
 # one of these specs, never at the dep-name level.
-_DEP_TABLES = ("dependencies", "pypi-dependencies")
+_DEP_TABLES = ("dependencies", "pypi-dependencies", "dependency-overrides")
 
 _PLATFORMS = "platforms"
 
@@ -31,8 +31,9 @@ def _reparent(value: Toml) -> Toml:
     """Reroot local path deps in the compiled tables, leaving everything else as is.
 
     Only a ``path`` carried as a dependency *source* (a value under a
-    ``dependencies`` / ``pypi-dependencies`` table) is shifted, so a dependency
-    literally named ``path`` keeps its version untouched.
+    ``dependencies``, ``pypi-dependencies``, or ``dependency-overrides`` table)
+    is shifted, so a dependency literally named ``path`` keeps its version
+    untouched.
     """
     if isinstance(value, dict):
         return {

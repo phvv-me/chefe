@@ -118,6 +118,22 @@ def test_locked_environment_refuses_manifest_drift_with_actionable_error(
     assert "--locked" in list(fp.calls[0])
 
 
+def test_editable_path_environment_installs_frozen_after_resolving(
+    fp: FakeProcess, tmp_path: Path, tool_paths: Mapping[str, str]
+) -> None:
+    """A mutable editable source trusts the resolved lock without demanding unchanged code."""
+    pixi = Pixi(tmp_path)
+    pixi.manifest.write_text('[pypi-dependencies.demo]\npath = "../demo"\neditable = true\n')
+    pixi.lock.write_text("version: 7\n")
+    for _ in range(2):
+        fp.register([tool_paths["pixi"], fp.any()], stdout="environment ready\n")
+
+    pixi.install("default", resolve=True)
+
+    assert "--locked" not in list(fp.calls[0])
+    assert "--frozen" in list(fp.calls[1])
+
+
 @pytest.mark.parametrize("resolve", [False, True])
 def test_task_environment_uses_an_existing_lock_unless_resolve_was_requested(
     *,

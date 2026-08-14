@@ -232,6 +232,9 @@ def test_local_path_deps_resolve_from_the_chefe_dir() -> None:
         [python.deps]
         here = { path = "packages/here", editable = true }
         there = { path = "/opt/there", editable = true }
+
+        [python.dependency-overrides]
+        here = { path = "packages/here", editable = true }
         """
     )
     pixi = PixiManifest.from_manifest(manifest)
@@ -240,6 +243,9 @@ def test_local_path_deps_resolve_from_the_chefe_dir() -> None:
         "editable": True,
     }
     assert pixi.pypi_dependencies["there"].model_extra == {"path": "/opt/there", "editable": True}
+    assert pixi.pypi_options["dependency-overrides"] == {
+        "here": {"path": "../packages/here", "editable": True}
+    }
     # a conda dependency *named* `path` keeps its version string, not a rerooted source
     assert pixi.dependencies["path"].version == ">=16"
 
