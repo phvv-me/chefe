@@ -7,6 +7,14 @@ from filelock import FileLock
 from ...core import Model
 from .writer import Writer
 
+# One FileLock instance per generated directory, shared across every
+# in-process acquisition. filelock is reentrant per INSTANCE, so the runtime
+# may open a transaction (stale-check plus recompile) while `provision`
+# already holds the same lock around the whole install, where two separate
+# instances on the same path would deadlock. Cross-process exclusion is
+# unchanged, it lives in the OS lock underneath.
+_LOCKS: dict[Path, FileLock] = {}
+
 
 class GeneratedFiles(Model):
     """Atomic generated-file writes guarded by one workspace sync lock."""
@@ -21,6 +29,7 @@ class GeneratedFiles(Model):
         a convention a caller can forget but the only way to reach a write at all.
         """
         self.directory.mkdir(exist_ok=True)
-        lock = FileLock(self.directory / ".sync.lock")
+        key = self.directory.resolve()
+        lock = _LOCKS.setdefault(key, FileLock(key / ".sync.lock"))
         with lock:
             yield Writer(lock)

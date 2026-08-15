@@ -9,19 +9,11 @@ from ..core import ChefeError, Project, Toml, current_platform
 from ..manifest import Manifest
 from .generated import GeneratedFiles, Writer
 from .layout import Workspace
+from .state import SyncState
 
-# Records the manifest digest a sync compiled from, so a later command can tell when the
-# generated env has gone stale against an edited manifest and recompile before activating.
-_SYNCED = ".synced"
-
-# A local path dependency can change its own pyproject without touching chefe.toml, which is the
-# one way the lock drifts while the compiled manifest stays byte-identical, so that metadata is
-# digested separately here.
-_RESOLUTION_INPUTS = ".resolution-inputs"
-
-# Present when the lock no longer matches the resolution inputs. Written instead of deleting
-# `pixi.lock`, so a shared workspace keeps a usable lock while one process solves.
-_RESOLUTION_STALE = ".resolution-stale"
+# Freshness truth lives in one atomically-replaced state file (see
+# `state.SyncState`); the compiler reads a coherent snapshot and writes the
+# whole next snapshot in a single replace, never a partial marker.
 
 # The generated dotenv loader, sourced first by pixi activation when `workspace.dotenv` is on.
 # Activation scripts run from the manifest dir (`.chefe/`), so `../.env` is the workspace root.
@@ -58,20 +50,22 @@ class Compiler:
         manifest = self.workspace.manifest.name
         self.console.print(f"[green]synced[/green] {manifest} → {self.workspace.out.name}/")
 
-    def install_locked(self, env: str, *, resolve: bool) -> None:
-        """Install ``env`` and bless its lock, in the one order that keeps the marker honest.
+    def install_locked(self, files: Writer, env: str, *, resolve: bool) -> None:
+        """Install ``env`` and bless its lock, in the one order that keeps the state honest.
 
-        A stale marker refuses the install outright unless this machine may solve, and it is
+        A stale flag refuses the install outright unless this machine may solve, and it is
         cleared only after a solve returned without raising, so a failed install can never leave
         a lock that nothing on disk vouches for looking fresh.
         """
-        if (self.workspace.out / _RESOLUTION_STALE).exists() and not resolve:
+        state = SyncState.load(self.workspace.out)
+        if state.resolution_stale and not resolve:
             raise ChefeError(
                 "pixi.lock no longer matches the resolution inputs. Run "
                 "`chefe install --resolve` on a solve-capable machine."
             )
         self.pixi.install(env, resolve=resolve)
-        (self.workspace.out / _RESOLUTION_STALE).unlink(missing_ok=True)
+        if state.resolution_stale:
+            self.__persist_state(files, state.model_copy(update={"resolution_stale": False}))
 
     def stale(self, env: str = "default") -> bool:
         """Whether ``env``'s generated env predates the current manifest content.
@@ -83,8 +77,7 @@ class Compiler:
         """
         if not self.pixi.manifest.exists():
             return False
-        marker = self.workspace.out / f"{_SYNCED}.{env}"
-        return not marker.exists() or marker.read_text() != self.workspace.digest()
+        return SyncState.load(self.workspace.out).envs.get(env) != self.workspace.digest()
 
     def sync(self, env: str = "default") -> None:
         """Compile the manifest into the generated `{pixi.toml, package.json}` for ``env``."""
@@ -100,13 +93,27 @@ class Compiler:
         manifest = self.workspace.load()
         compiled = PixiManifest.from_manifest(manifest).to_toml()
         resolution_digest = self._resolution_digest(manifest)
-        self._mark_lock_stale_if_drifted(files, compiled, resolution_digest=resolution_digest)
-        self._write_generated_files(
-            files, manifest, compiled=compiled, resolution_digest=resolution_digest, env=env
+        state = SyncState.load(self.workspace.out)
+        if self._resolution_drifted(state, compiled, resolution_digest=resolution_digest):
+            state = state.model_copy(update={"resolution_stale": self.pixi.lock.exists()})
+            if state.resolution_stale:
+                self.console.print(
+                    "[yellow]stale[/yellow] pixi.lock, resolution inputs changed, "
+                    "run `chefe install --resolve`"
+                )
+        self._write_generated_files(files, manifest, compiled=compiled, env=env)
+        # A crash anywhere above must leave the workspace stale, so the state snapshot only
+        # lands once every file compiled from this manifest is already on disk, and it lands
+        # as ONE atomic replace carrying digest, inputs, and stale flag together.
+        self.__persist_state(
+            files,
+            state.model_copy(
+                update={
+                    "envs": {**state.envs, env: source_digest},
+                    "resolution_inputs": resolution_digest,
+                }
+            ),
         )
-        # A crash anywhere above must leave the workspace stale, so the freshness marker only
-        # lands once every other file compiled from this manifest is already on disk.
-        files.write(self.workspace.out / f"{_SYNCED}.{env}", source_digest)
 
     @staticmethod
     def _resolution_manifest(text: str) -> dict[str, Toml]:
@@ -114,25 +121,6 @@ class Compiler:
         document = tomllib.loads(text)
         document.pop("tasks", None)
         return document
-
-    def _mark_lock_stale_if_drifted(
-        self, files: Writer, compiled: str, *, resolution_digest: str
-    ) -> None:
-        """Flag `pixi.lock` stale rather than deleting it, once ``compiled`` drifts from it.
-
-        Flagging keeps other processes on a usable environment while one solves, and a failed
-        solve still falls back. The marker gates `install` as a missing lock did.
-        """
-        if not (
-            self._resolution_drifted(compiled, resolution_digest=resolution_digest)
-            and self.pixi.lock.exists()
-        ):
-            return
-        files.write(self.workspace.out / _RESOLUTION_STALE, resolution_digest)
-        self.console.print(
-            "[yellow]stale[/yellow] pixi.lock, resolution inputs changed, "
-            "run `chefe install --resolve`"
-        )
 
     def _resolution_digest(self, manifest: Manifest) -> str:
         """Hash local project metadata that can change without changing the compiled manifest."""
@@ -146,7 +134,9 @@ class Compiler:
                 digest.update(b"\0")
         return digest.hexdigest()
 
-    def _resolution_drifted(self, compiled: str, *, resolution_digest: str) -> bool:
+    def _resolution_drifted(
+        self, state: SyncState, compiled: str, *, resolution_digest: str
+    ) -> bool:
         """Whether ``compiled`` or its resolution inputs differ from what was generated last.
 
         A generated file that is missing counts as drift, since nothing on disk can vouch for
@@ -158,21 +148,20 @@ class Compiler:
             existing = compiled
         if self._resolution_manifest(existing) != self._resolution_manifest(compiled):
             return True
-        inputs = self.workspace.out / _RESOLUTION_INPUTS
-        try:
-            return inputs.read_text(encoding="utf-8") != resolution_digest
-        except FileNotFoundError:
-            return True
+        return state.resolution_inputs != resolution_digest
 
     def _write_generated_files(
-        self, files: Writer, manifest: Manifest, *, compiled: str, resolution_digest: str, env: str
+        self, files: Writer, manifest: Manifest, *, compiled: str, env: str
     ) -> None:
-        """Write the compiled pixi manifest, its resolution digest, dotenv, and `package.json`."""
+        """Write the compiled pixi manifest, the dotenv loader, and `package.json`."""
         files.write(self.pixi.manifest, compiled)
-        files.write(self.workspace.out / _RESOLUTION_INPUTS, resolution_digest)
         if manifest.workspace.dotenv:
             files.write(self.workspace.out / _DOTENV, _DOTENV_SH)
         self._write_package_json(files, manifest, env)
+
+    def __persist_state(self, files: Writer, state: SyncState) -> None:
+        """Replace the whole state snapshot in one atomic write."""
+        files.write(SyncState.path(self.workspace.out), state.render())
 
     def _write_package_json(self, files: Writer, manifest: Manifest, env: str) -> None:
         """Write ``env``'s generated `package.json`, removing it once the last nodejs dep is gone.

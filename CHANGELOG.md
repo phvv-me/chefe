@@ -4,12 +4,28 @@ All notable changes to chefe are documented here.
 
 The format follows Keep a Changelog, and releases are cut from the version in `pyproject.toml`.
 
+## 0.0.29
+
+- Compile freshness now lives in one atomically-replaced `state.toml` under
+  the generated dir, replacing the scattered per-marker files whose
+  multi-file writes could interleave across concurrent processes and stamp
+  spurious lock-stale states. Old markers
+  never migrate: a missing state file reads as stale, the next write
+  recomputes every digest and re-derives the lock-stale flag, and a
+  workspace holding a pre-0.0.29 lock demands one `chefe install --resolve`
+  after upgrading.
+- The runtime's stale-check and recompile now run inside one sync-lock
+  acquisition (the unlocked check-then-act was the race), and lock instances
+  are shared per generated directory so nested acquisitions are reentrant
+  instead of deadlocking under `provision`.
+
 ## 0.0.28
 
 ### Fixed
 
-- Editable dependency override paths are now rerooted in generated Pixi manifests, and the
-  resolved environment is verified with Pixi's frozen mode so mutable sources remain usable.
+- Concurrent `chefe run` calls no longer let Pixi reinstall an environment while sibling tasks
+  import editable packages from it. Once Pixi's completion fingerprint exists, runs use its
+  nonmutating `--as-is` path. A fresh environment still uses the locked install path.
 - The generated `.chefe/dotenv.sh` loader no longer lets `.env` file values clobber variables
   the shell already exported. `set -a` sourcing gave the file the same precedence as
   `python-dotenv` or `docker-compose` deny, and it silently overrode an already-set variable

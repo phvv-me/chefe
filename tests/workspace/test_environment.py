@@ -9,6 +9,7 @@ from plumbum import local
 from chefe.core import ChefeError
 from chefe.manager import PackageManager
 from chefe.manifest import Manifest
+from chefe.workspace.state import SyncState
 
 Workspace = Callable[[str], PackageManager]
 LockedWorkspace = Callable[..., tuple[PackageManager, str]]
@@ -177,7 +178,7 @@ def test_sync_marks_a_lock_stale_when_serving_resolution_inputs_change(
     # The lock survives so other processes sharing this checkout keep a usable environment,
     # and the marker is what makes a later `install` demand `--resolve`.
     assert manager.pixi.lock.read_text() == "version: 7\n"
-    assert (manager.workspace.out / ".resolution-stale").exists()
+    assert SyncState.load(manager.workspace.out).resolution_stale
 
 
 def test_sync_preserves_a_lock_when_the_compiled_manifest_is_identical(
@@ -244,7 +245,7 @@ def test_sync_marks_a_lock_stale_when_local_project_identity_changes(
 
     assert project.pixi.manifest.read_text() == compiled
     assert project.pixi.lock.read_text() == "version: 7\n"
-    assert (project.workspace.out / ".resolution-stale").exists()
+    assert SyncState.load(project.workspace.out).resolution_stale
 
 
 def test_install_drives_every_backend(
@@ -291,7 +292,7 @@ def test_install_refuses_a_stale_lock_without_resolve(
 
     assert manager.pixi.lock.read_text() == "version: 7\n"
     manager.environment.install(resolve=True)
-    assert not (manager.workspace.out / ".resolution-stale").exists()
+    assert not SyncState.load(manager.workspace.out).resolution_stale
 
 
 def test_install_activate_only_skips_package_install(

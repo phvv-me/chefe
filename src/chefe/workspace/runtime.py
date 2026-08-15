@@ -43,10 +43,15 @@ class Runtime:
         Recompiles first when the manifest changed since the last sync, so an edit to
         `chefe.toml` (a new env var, a dep) is never served from a stale generated env.
         """
-        if self.compiler.stale(env):
-            name = self.workspace.manifest.name
-            self.console.print(markup(t"[yellow]{name} changed, recompiling[/yellow]"))
-            self.compiler.sync(env)
+        # Check and recompile inside ONE lock acquisition: the unlocked
+        # check-then-act here was how two processes both recompiled and one
+        # read the other's half-finished truth (the 2026-08-14 race).
+        with GeneratedFiles(directory=self.workspace.out).locked() as files:
+            if self.compiler.stale(env):
+                name = self.workspace.manifest.name
+                self.console.print(markup(t"[yellow]{name} changed, recompiling[/yellow]"))
+                self.compiler.write(files, env)
+                self.compiler.announce()
         with self.pixi.activated(env):
             manifest = self.workspace.load()
             toolchains = manifest.toolchains_for(env, platform=current_platform())
@@ -104,7 +109,7 @@ class Runtime:
         with GeneratedFiles(directory=self.workspace.out).locked() as files:
             self.compiler.write(files, env)
             self.compiler.announce()
-            self.compiler.install_locked(env, resolve=resolve)
+            self.compiler.install_locked(files, env, resolve=resolve)
             with self.activated(env):
                 self.node(env)("install")
             self.cargo.sync(env, self.rust_deps(env))
