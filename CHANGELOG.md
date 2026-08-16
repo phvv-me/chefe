@@ -4,6 +4,13 @@ All notable changes to chefe are documented here.
 
 The format follows Keep a Changelog, and releases are cut from the version in `pyproject.toml`.
 
+## 0.0.30
+
+- The actual release of the 0.0.29 changes below: 0.0.29 was tagged but
+  never reached PyPI because a manually re-pushed tag made the
+  version-driven release workflow read it as already published and skip
+  the upload, so the version moves forward and the dead tag stays behind.
+
 ## 0.0.29
 
 - Compile freshness now lives in one atomically-replaced `state.toml` under
