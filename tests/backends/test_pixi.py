@@ -1,4 +1,5 @@
 import json
+import os
 from collections.abc import Mapping
 from pathlib import Path
 
@@ -70,10 +71,185 @@ def test_successful_pixi_install_returns_cleanly(
     fp: FakeProcess, tmp_path: Path, tool_paths: Mapping[str, str]
 ) -> None:
     """A successful locked installation has no error epilogue."""
-    Pixi(tmp_path).lock.write_text("version: 7\n")
+    pixi = Pixi(tmp_path)
+    pixi.manifest.write_text('[workspace]\nplatforms = ["linux-64"]\n')
+    pixi.lock.write_text("version: 7\n")
     fp.register([tool_paths["pixi"], fp.any()], stdout="environment ready\n")
 
-    assert Pixi(tmp_path).install("default") is None
+    assert pixi.install("default") is None
+
+
+def test_install_repairs_a_pypi_wheel_damaged_by_a_provider_transition(
+    fp: FakeProcess,
+    mocker: MockerFixture,
+    tmp_path: Path,
+    tool_paths: Mapping[str, str],
+) -> None:
+    """A retained wheel whose import roots vanished is reinstalled through the locked env."""
+    pixi = Pixi(tmp_path)
+    pixi.lock.write_text("version: 7\n")
+    mocker.patch.object(
+        Pixi,
+        "_broken_python_packages",
+        side_effect=[("cupy-cuda13x",), ()],
+        autospec=True,
+    )
+    base = [tool_paths["pixi"], fp.any(), "--manifest-path", str(pixi.manifest), "--locked"]
+    fp.register([*base, "-e", "default"], stdout="environment ready\n")
+    fp.register([*base, "-e", "default", "cupy-cuda13x"], stdout="package repaired\n")
+
+    pixi.install("default")
+
+    assert len(fp.calls) == 2
+    assert list(fp.calls[1])[1:] == [
+        "reinstall",
+        "--manifest-path",
+        str(pixi.manifest),
+        "--locked",
+        "-e",
+        "default",
+        "cupy-cuda13x",
+    ]
+
+
+def test_pypi_integrity_probe_finds_missing_top_level_import_roots(tmp_path: Path) -> None:
+    """The probe ignores metadata-only and Conda records but reports a damaged uv-pixi wheel."""
+    pixi = Pixi(tmp_path)
+    site_packages = pixi.env_prefix("default") / "lib" / "python3.14" / "site-packages"
+    site_packages.mkdir(parents=True)
+    for name, installer, roots in (
+        ("broken-1.0.dist-info", "uv-pixi", "broken\n"),
+        ("partial-1.0.dist-info", "uv-pixi", "partial\nmissing_companion\n"),
+        ("editable-1.0.dist-info", "uv-pixi", "editable\n"),
+        ("metadata-only-1.0.dist-info", "uv-pixi", "\n"),
+        ("conda-owned-1.0.dist-info", "conda", "conda_owned\n"),
+    ):
+        metadata = site_packages / name
+        metadata.mkdir()
+        metadata.joinpath("METADATA").write_text(f"Name: {name.split('-1.0')[0]}\nVersion: 1.0\n")
+        metadata.joinpath("INSTALLER").write_text(installer)
+        metadata.joinpath("top_level.txt").write_text(roots)
+        metadata.joinpath("RECORD").write_text("")
+        if name.startswith("editable"):
+            metadata.joinpath("direct_url.json").write_text('{"dir_info":{"editable":true}}')
+    site_packages.joinpath("partial.py").write_text("")
+
+    assert pixi._broken_python_packages("default") == ("broken",)
+
+
+def test_native_editable_probe_finds_sources_newer_than_the_installed_extension(
+    tmp_path: Path,
+) -> None:
+    """A changed native source makes its editable package a targeted reinstall candidate."""
+    pixi = Pixi(tmp_path)
+    site_packages = pixi.env_prefix("default") / "lib" / "python3.14" / "site-packages"
+    metadata = site_packages / "native-demo-1.0.dist-info"
+    artifact = site_packages / "native_demo" / "_native.cpython-314-x86_64-linux-gnu.so"
+    source = tmp_path / "native-demo"
+    metadata.mkdir(parents=True)
+    artifact.parent.mkdir()
+    source.mkdir()
+    artifact.write_bytes(b"binary")
+    source.joinpath("native.cpp").write_text("void changed() {}\n")
+    metadata.joinpath("METADATA").write_text("Name: native-demo\nVersion: 1.0\n")
+    metadata.joinpath("INSTALLER").write_text("uv-pixi")
+    metadata.joinpath("direct_url.json").write_text(
+        json.dumps({"url": source.as_uri(), "dir_info": {"editable": True}})
+    )
+    metadata.joinpath("RECORD").write_text(
+        f"{artifact.relative_to(site_packages)},,\n"
+        "native-demo-1.0.dist-info/INSTALLER,,\n"
+        "native-demo-1.0.dist-info/METADATA,,\n"
+        "native-demo-1.0.dist-info/RECORD,,\n"
+        "native-demo-1.0.dist-info/direct_url.json,,\n"
+    )
+    os.utime(artifact, ns=(1_000_000_000, 1_000_000_000))
+    os.utime(source / "native.cpp", ns=(2_000_000_000, 2_000_000_000))
+
+    assert pixi._stale_native_editable_packages("default") == ("native-demo",)
+
+    os.utime(artifact, ns=(3_000_000_000, 3_000_000_000))
+    assert pixi._stale_native_editable_packages("default") == ()
+
+
+def test_install_rebuilds_a_stale_native_editable(
+    fp: FakeProcess,
+    mocker: MockerFixture,
+    tmp_path: Path,
+    tool_paths: Mapping[str, str],
+) -> None:
+    """A stale native editable is reinstalled through the same locked environment."""
+    pixi = Pixi(tmp_path)
+    pixi.lock.write_text("version: 7\n")
+    mocker.patch.object(Pixi, "_broken_python_packages", return_value=(), autospec=True)
+    mocker.patch.object(
+        Pixi,
+        "_stale_native_editable_packages",
+        return_value=("cutoken",),
+        autospec=True,
+    )
+    base = [tool_paths["pixi"], fp.any(), "--manifest-path", str(pixi.manifest), "--locked"]
+    fp.register([*base, "-e", "default"], stdout="environment ready\n")
+    fp.register([*base, "-e", "default", "cutoken"], stdout="package rebuilt\n")
+
+    pixi.install("default")
+
+    assert len(fp.calls) == 2
+    assert list(fp.calls[1])[1:] == [
+        "reinstall",
+        "--manifest-path",
+        str(pixi.manifest),
+        "--locked",
+        "-e",
+        "default",
+        "cutoken",
+    ]
+
+
+def test_install_fails_when_a_repaired_python_package_is_still_incomplete(
+    fp: FakeProcess,
+    mocker: MockerFixture,
+    tmp_path: Path,
+    tool_paths: Mapping[str, str],
+) -> None:
+    """A successful reinstall cannot conceal a package that remains structurally broken."""
+    pixi = Pixi(tmp_path)
+    pixi.lock.write_text("version: 7\n")
+    mocker.patch.object(
+        Pixi,
+        "_broken_python_packages",
+        side_effect=[("cupy-cuda13x",), ("cupy-cuda13x",)],
+        autospec=True,
+    )
+    base = [tool_paths["pixi"], fp.any(), "--manifest-path", str(pixi.manifest), "--locked"]
+    fp.register([*base, "-e", "default"], stdout="environment ready\n")
+    fp.register([*base, "-e", "default", "cupy-cuda13x"], stdout="package repaired\n")
+
+    with pytest.raises(ChefeError, match="remain incomplete.*cupy-cuda13x"):
+        pixi.install("default")
+
+
+def test_install_reports_a_failed_python_package_repair(
+    fp: FakeProcess,
+    mocker: MockerFixture,
+    tmp_path: Path,
+    tool_paths: Mapping[str, str],
+) -> None:
+    """A failed targeted reinstall remains a hard installation failure."""
+    pixi = Pixi(tmp_path)
+    pixi.lock.write_text("version: 7\n")
+    mocker.patch.object(
+        Pixi,
+        "_broken_python_packages",
+        return_value=("cupy-cuda13x",),
+        autospec=True,
+    )
+    base = [tool_paths["pixi"], fp.any(), "--manifest-path", str(pixi.manifest), "--locked"]
+    fp.register([*base, "-e", "default"], stdout="environment ready\n")
+    fp.register([*base, "-e", "default", "cupy-cuda13x"], returncode=9, stderr="repair failed\n")
+
+    with pytest.raises(ChefeError, match="pixi reinstall"):
+        pixi.install("default")
 
 
 def test_failed_pixi_query_replays_captured_output(
@@ -135,7 +311,7 @@ def test_editable_path_environment_installs_frozen_after_resolving(
 
 
 @pytest.mark.parametrize("resolve", [False, True])
-def test_task_environment_uses_an_existing_lock_unless_resolve_was_requested(
+def test_uninstalled_task_environment_uses_an_existing_lock_unless_resolve_was_requested(
     *,
     resolve: bool,
     fp: FakeProcess,
@@ -149,6 +325,22 @@ def test_task_environment_uses_an_existing_lock_unless_resolve_was_requested(
 
     assert pixi.launch("run", "build", env="default", resolve=resolve) == 0
     assert all(("--locked" in list(call)) is not resolve for call in fp.calls)
+
+
+def test_installed_task_environment_runs_as_is(
+    fp: FakeProcess, tmp_path: Path, tool_paths: Mapping[str, str]
+) -> None:
+    """A completed environment is not reinstalled while concurrent tasks use it."""
+    pixi = Pixi(tmp_path)
+    pixi.lock.write_text("version: 7\n")
+    fingerprint = pixi.env_prefix("default") / "conda-meta" / ".pixi-environment-fingerprint"
+    fingerprint.parent.mkdir(parents=True)
+    fingerprint.write_text("ready\n")
+    fp.register([tool_paths["pixi"], fp.any()], stdout="")
+
+    assert pixi.launch("run", "build", env="default") == 0
+    assert "--as-is" in list(fp.calls[0])
+    assert "--locked" not in list(fp.calls[0])
 
 
 def test_install_requires_a_lock_unless_resolution_was_requested(
