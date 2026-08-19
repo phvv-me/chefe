@@ -201,8 +201,11 @@ class Pixi(Tool):
                     "file://"
                 ):
                     continue
+                # `locate_file` is declared to return the `SimplePath` protocol, which carries
+                # neither `stat` nor `exists`, so the absolute location becomes a real `Path`
+                # here rather than at each of the two reads below.
                 artifacts = tuple(
-                    distribution.locate_file(path)
+                    Path(str(distribution.locate_file(path)))
                     for path in distribution.files or ()
                     if Path(str(path)).suffix in _NATIVE_ARTIFACT_SUFFIXES
                 )

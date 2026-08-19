@@ -3,6 +3,7 @@ name: CI
 on:
   pull_request:
   workflow_call: # publish.yml runs this exact gate on main before publishing
+  workflow_dispatch: # manual runs (e.g. to validate main directly between releases)
 
 jobs:
   test:
@@ -13,15 +14,18 @@ jobs:
         python: ["3.14"]
     steps:
       - uses: actions/checkout@v6
-      # local path, not the remote phvv-me/chefe/...@main tag, since this repository hosts the
-      # action, so its own CI proves the action before the other repositories consume it.
-      # chefe gitignores uv.lock, so resolve stays true to solve fresh, matching the old
-      # unfrozen `uv sync`
-      - uses: ./.github/actions/setup
+      # A published package stands on its own, so the bootstrap is the official uv action and
+      # nothing of ours. chefe provisions environments for a living and still cannot use itself
+      # to build itself, which is why this repository once hosted a shared action for the others
+      # to reuse. That coupling made every sibling release depend on this default branch, so each
+      # repository now names its own two lines here instead.
+      - uses: astral-sh/setup-uv@v7
         with:
-          mode: uv
           python-version: ${{ matrix.python }}
-          resolve: true
+          enable-cache: true
+      # One sync names every extra the gate needs, and the `uv run` steps below reuse that
+      # environment without pruning it.
+      - run: uv sync --extra dev
       - run: uv run ruff check .
       - run: uv run ruff format --check .
       - run: uv run mypy src

@@ -186,12 +186,6 @@ exclude = ["hooks/llms.py"]
 [tool.mcmr.rules."PY-INTE0001"]
 exclude = ["src/chefe/compiled/pixi.py"]
 
-# GitHub requires a composite action at `.github/actions/<name>/action.yml`, so with today's one
-# action, `.github/actions` leads to a single child directory. The layout is fixed by the platform,
-# not a navigation step we chose, and it stays a pure pass-through as more actions join `setup`.
-[tool.mcmr.rules."ALL-FILE0004"]
-exclude = [".github/actions"]
-
 # A test states the same fixture path/module/rule identity per case, and naming it would move the
 # fixture away from the assertion that reads it.
 [tool.mcmr.rules."ALL-DUPL0005"]
